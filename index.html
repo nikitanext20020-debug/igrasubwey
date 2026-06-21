@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Ваня Бежит! - 3D Раннер</title>
+  <meta name="description" content="Полноценный 3D-раннер в стиле Subway Surfers в российском дворе. Уворачивайся от бабушек, собирай джин и летай на коробке!">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Импорт Three.js через Importmap -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Canvas для 3D графики -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- ИНТЕРФЕЙС ИГРЫ -->
+  <div id="ui-container">
+    
+    <!-- 1. Главное меню -->
+    <div id="main-menu" class="ui-screen active">
+      <div class="menu-header">
+        <h1 class="game-title">ВАНЯ<br><span class="accent-title">БЕЖИТ!</span></h1>
+        <p class="game-subtitle">Эпический 3D раннер во дворе</p>
+      </div>
+      
+      <div class="menu-stats">
+        <div class="stat-badge">
+          <span class="stat-icon">🍾</span>
+          <span id="menu-bottles-count">0</span>
+        </div>
+        <div class="stat-badge">
+          <span class="stat-icon">🏆</span>
+          <span id="menu-highscore">Рекорд: 0</span>
+        </div>
+      </div>
+
+      <div class="menu-buttons">
+        <button id="btn-play" class="btn btn-primary btn-lg">ИГРАТЬ</button>
+        <button id="btn-shop" class="btn btn-secondary">МАГАЗИН</button>
+      </div>
+      
+      <div class="sound-toggle-container">
+        <button id="btn-sound-toggle" class="btn-sound">🔊</button>
+      </div>
+      
+      <div class="controls-hint">
+        ПК: Стрелки / WASD (Движение), Пробел (Прыжок / Пук), S (Подкат)<br>
+        Мобилки: Свайпы во все стороны, Зажатие экрана (Пук)
+      </div>
+    </div>
+
+    <!-- 2. Магазин бонусов -->
+    <div id="shop-menu" class="ui-screen">
+      <button id="btn-shop-back" class="btn-back">← Назад</button>
+      <h2 class="screen-title">ДВОРОВЫЙ МАГАЗИН</h2>
+      
+      <div class="shop-balance">
+        <span>У тебя в кармане:</span>
+        <div class="stat-badge">
+          <span class="stat-icon">🍾</span>
+          <span id="shop-bottles-count">0</span>
+        </div>
+      </div>
+
+      <div class="shop-items">
+        <!-- Бонус 1: Коробка-самолёт -->
+        <div class="shop-item" id="item-box">
+          <div class="item-icon">📦✈️</div>
+          <div class="item-info">
+            <h3 class="item-name">Коробка-самолёт</h3>
+            <p class="item-desc">Позволяет летать над бабушками в картонной коробке (5-8 сек). В полете ты неуязвим!</p>
+          </div>
+          <button id="btn-buy-box" class="btn btn-buy">Купить (10 🍾)</button>
+        </div>
+
+        <!-- Бонус 2: Розовый джин -->
+        <div class="shop-item" id="item-fart">
+          <div class="item-icon photo-icon">
+            <img class="item-photo" src="assets/pink-gin.png" alt="Розовый джин">
+          </div>
+          <div class="item-info">
+            <h3 class="item-name">Розовый джин</h3>
+            <p class="item-desc">Реактивный пук! Подбери бутылку на трассе для автополета или разблокируй ручной полет.</p>
+          </div>
+          <button id="btn-buy-fart" class="btn btn-buy">Купить (25 🍾)</button>
+        </div>
+
+        <!-- Бонус 3: Салфетки -->
+        <div class="shop-item" id="item-napkin">
+          <div class="item-icon">🧻🔗</div>
+          <div class="item-info">
+            <h3 class="item-name">Салфетки</h3>
+            <p class="item-desc">Полезный промо-бонус. Открывает секретный сайт в новой вкладке.</p>
+          </div>
+          <button id="btn-buy-napkin" class="btn btn-buy">Купить (5 🍾)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Игровой интерфейс (HUD) -->
+    <div id="hud" class="ui-screen">
+      <div class="hud-top">
+        <div class="hud-left">
+          <div class="hud-badge">
+            <span class="hud-icon">🍾</span>
+            <span id="hud-bottles">0</span>
+          </div>
+        </div>
+        <div class="hud-center">
+          <div id="hud-score" class="score-display">000000</div>
+        </div>
+        <div class="hud-right">
+          <button id="btn-pause" class="btn-pause">⏸</button>
+        </div>
+      </div>
+      
+      <!-- Панель активных бонусов -->
+      <div class="hud-bonuses">
+        <div id="hud-bonus-box" class="active-bonus-badge hidden">
+          <span class="bonus-badge-icon">📦</span>
+          <div class="bonus-progress-bar"><div class="progress-fill" id="bonus-box-fill"></div></div>
+        </div>
+        <div id="hud-bonus-fart" class="active-bonus-badge hidden">
+          <img class="bonus-badge-image" src="assets/pink-gin.png" alt="">
+          <div class="bonus-progress-bar"><div class="progress-fill" id="bonus-fart-fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Пауза -->
+    <div id="pause-screen" class="ui-screen">
+      <div class="pause-dialog">
+        <h2>ИГРА НА ПАУЗЕ</h2>
+        <div class="pause-buttons">
+          <button id="btn-resume" class="btn btn-primary">ПРОДОЛЖИТЬ</button>
+          <button id="btn-quit" class="btn btn-secondary">В МЕНЮ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Экран Game Over -->
+    <div id="game-over-screen" class="ui-screen">
+      <div class="game-over-box">
+        <h2 class="game-over-title">ВАНЮ ДОГНАЛИ!</h2>
+        <p class="game-over-subtitle">Лиза поймала его за гаражами...</p>
+        
+        <div class="game-over-stats">
+          <div class="go-stat">
+            <span class="go-label">Очки:</span>
+            <span id="go-score" class="go-value">0</span>
+          </div>
+          <div class="go-stat">
+            <span class="go-label">Рекорд:</span>
+            <span id="go-highscore" class="go-value text-gold">0</span>
+          </div>
+          <div class="go-stat">
+            <span class="go-label">Собрано бутылок:</span>
+            <span id="go-bottles" class="go-value text-blue">0</span>
+          </div>
+        </div>
+
+        <div class="go-buttons">
+          <button id="btn-restart" class="btn btn-primary btn-lg">ИГРАТЬ СНОВА</button>
+          <button id="btn-shop-go" class="btn btn-secondary">МАГАЗИН</button>
+          <button id="btn-menu-go" class="btn btn-link">В главное меню</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Главный скрипт -->
+  <script type="module" src="main.js"></script>
+</body>
+</html>
