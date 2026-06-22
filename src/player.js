@@ -55,7 +55,6 @@ export class Player {
     this.loadPresentationModel();
     setTimeout(() => this.loadFBXModel(), 500);
     setTimeout(() => this.loadJumpModel(), 1500);
-    setTimeout(() => this.loadPresentationModel(), 2000);
     setTimeout(() => this.loadCrashModel(), 2500);
   }
 
@@ -635,18 +634,30 @@ export class Player {
       if (this.jumpFBX) this.jumpFBX.visible = false;
       if (this.crashFBX) this.crashFBX.visible = false;
       if (this.modelGroup) this.modelGroup.visible = false;
+      if (this.presentationFBX) this.presentationFBX.visible = false;
     } else {
       // Обычный бег/прыжок
       const isJumping = this.isJumping || this.isFarting;
-      if (this.fbxModel) this.fbxModel.visible = visible && !isJumping && !this.isStumbling;
-      if (this.jumpFBX) this.jumpFBX.visible = visible && isJumping && !this.isStumbling;
-      if (this.crashFBX) this.crashFBX.visible = visible && this.isStumbling;
-      if (!this.fbxModel && this.modelGroup) {
-        this.modelGroup.visible = visible && !this.isStumbling;
+      const isIdle = this.presentationMode === 'idle';
+      
+      if (this.fbxModel) {
+        this.fbxModel.visible = visible && !isIdle && !isJumping && !this.isStumbling;
+      }
+      if (this.jumpFBX) {
+        this.jumpFBX.visible = visible && !isIdle && isJumping && !this.isStumbling;
+      }
+      if (this.crashFBX) {
+        this.crashFBX.visible = visible && !isIdle && this.isStumbling;
+      }
+      if (this.modelGroup) {
+        // Показываем примитивного Ваню только если нет реальных моделей
+        const hasRealModel = this.fbxModel || (isIdle && this.presentationFBX);
+        this.modelGroup.visible = !hasRealModel && visible && !this.isStumbling;
+      }
+      if (this.presentationFBX) {
+        this.presentationFBX.visible = visible && isIdle;
       }
     }
-    
-    if (this.presentationFBX) this.presentationFBX.visible = visible && this.presentationMode === 'idle' && this.activeBonus !== 'box';
   }
 
   setPresentationMode(mode) {
