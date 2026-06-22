@@ -20,6 +20,10 @@ class UIManager {
     this.onQuitGameCallback = null;
     this.activeScreen = 'main-menu';
     this.lastHUDBottles = 0;
+    this.pendingBottleFloatAmount = 0;
+    this.bottleFloatEl = null;
+    this.bottleFloatTimeout = null;
+    this.bottlePopTimeout = null;
   }
 
   init(callbacks) {
@@ -213,18 +217,35 @@ class UIManager {
     const badge = document.getElementById('hud-bottles-badge');
     if (!badge) return;
 
-    badge.classList.remove('pickup-pop');
-    void badge.offsetWidth;
     badge.classList.add('pickup-pop');
-
-    const float = document.createElement('span');
-    float.className = 'bottle-float';
-    float.textContent = `+${amount} 🍾`;
-    badge.appendChild(float);
-
-    setTimeout(() => {
-      float.remove();
+    clearTimeout(this.bottlePopTimeout);
+    this.bottlePopTimeout = setTimeout(() => {
       badge.classList.remove('pickup-pop');
+    }, 350);
+
+    this.pendingBottleFloatAmount += amount;
+
+    let float = this.bottleFloatEl;
+    if (!float || !float.isConnected) {
+      float = document.createElement('span');
+      float.className = 'bottle-float';
+      badge.appendChild(float);
+      this.bottleFloatEl = float;
+    }
+
+    float.textContent = `+${this.pendingBottleFloatAmount} 🍾`;
+    float.style.animation = 'none';
+    requestAnimationFrame(() => {
+      if (float.isConnected) {
+        float.style.animation = '';
+      }
+    });
+
+    clearTimeout(this.bottleFloatTimeout);
+    this.bottleFloatTimeout = setTimeout(() => {
+      if (float.isConnected) float.remove();
+      this.bottleFloatEl = null;
+      this.pendingBottleFloatAmount = 0;
     }, 780);
   }
 

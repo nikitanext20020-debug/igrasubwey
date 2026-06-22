@@ -26,6 +26,8 @@ class Game {
     this.stumbleLevel = 0;
     this.collisionCooldown = 0;
     this.cleanRunTimer = 0;
+    this.pickupTextEl = null;
+    this.pickupTextAnimation = null;
 
     this.initEngine();
     this.initObjects();
@@ -594,16 +596,28 @@ class Game {
   }
 
   createPickupText(text, colorHex, position3D) {
-    const el = document.createElement('div');
+    let el = this.pickupTextEl;
+    if (!el) {
+      el = document.createElement('div');
+      el.style.position = 'absolute';
+      el.style.color = '#fff';
+      el.style.fontWeight = 'bold';
+      el.style.fontSize = '24px';
+      el.style.textShadow = '1px 1px 2px #000'; // Optimized shadow
+      el.style.pointerEvents = 'none';
+      el.style.zIndex = '100';
+      this.pickupTextEl = el;
+    }
+
+    if (this.pickupTextAnimation) {
+      this.pickupTextAnimation.cancel();
+    }
+
     el.innerText = text;
-    el.style.position = 'absolute';
-    el.style.color = '#fff';
-    el.style.fontWeight = 'bold';
-    el.style.fontSize = '24px';
-    el.style.textShadow = '1px 1px 2px #000'; // Optimized shadow
-    el.style.pointerEvents = 'none';
-    el.style.zIndex = '100';
-    document.body.appendChild(el);
+    el.style.display = 'block';
+    if (!el.isConnected) {
+      document.body.appendChild(el);
+    }
 
     const vector = position3D.clone();
     vector.y += 2.5; 
@@ -615,13 +629,16 @@ class Game {
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
 
-    el.animate([
+    this.pickupTextAnimation = el.animate([
       { transform: 'translate(-50%, 0) scale(1)', opacity: 1 },
       { transform: 'translate(-50%, -100px) scale(1.5)', opacity: 0 }
     ], {
       duration: 1000,
       easing: 'ease-out'
-    }).onfinish = () => el.remove();
+    });
+    this.pickupTextAnimation.onfinish = () => {
+      el.style.display = 'none';
+    };
   }
 
   handleCollision(collision) {
@@ -704,7 +721,7 @@ class Game {
         if (type === 'gin') {
           this.collectedBottles += val;
           uiManager.updateHUDBottles(this.collectedBottles);
-          this.createPickupText('+1', 0x00ff00, this.player.mesh.position);
+          this.createPickupText(`+${val}`, 0x00ff00, this.player.mesh.position);
         } else if (type === 'box_flight') {
           // Коробка-самолет подобрана на трассе
           uiManager.updateBonusHUD('box', 100);

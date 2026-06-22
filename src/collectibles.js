@@ -8,6 +8,8 @@ export class CollectibleManager {
   constructor(scene) {
     this.scene = scene;
     this.items = [];
+    this.bottlePool = [];
+    this.lastPickupSoundAt = 0;
 
     // Материалы
     this.materials = {
@@ -67,8 +69,7 @@ export class CollectibleManager {
   // Очистка всех предметов на сцене
   reset() {
     this.items.forEach(item => {
-      this.scene.remove(item.mesh);
-      this.disposeMesh(item.mesh);
+      this.releaseItem(item);
     });
     this.items = [];
   }
@@ -110,6 +111,14 @@ export class CollectibleManager {
 
   // Спавн 3D модели бутылки джина
   createBottleMesh(isPink = false) {
+    if (!isPink && !this.bottleFBX && this.bottlePool.length > 0) {
+      const pooledBottle = this.bottlePool.pop();
+      pooledBottle.visible = true;
+      pooledBottle.rotation.set(0, 0, 0);
+      pooledBottle.scale.set(1, 1, 1);
+      return pooledBottle;
+    }
+
     const bottleGroup = new THREE.Group();
 
     if (this.bottleFBX) {
@@ -293,8 +302,7 @@ export class CollectibleManager {
 
       // 2. Удаление предметов, оставшихся далеко сзади
       if (item.mesh.position.z < playerZ - 10) {
-        this.scene.remove(item.mesh);
-        this.disposeMesh(item.mesh);
+        this.releaseItem(item);
         this.items.splice(i, 1);
       }
     }
@@ -309,6 +317,7 @@ export class CollectibleManager {
     const pX = playerPos.x;
     const pY = playerPos.y + player.height / 2;
     const pZ = playerPos.z;
+    let collectedGin = 0;
 
     for (let i = this.items.length - 1; i >= 0; i--) {
       const item = this.items[i];
@@ -320,32 +329,54 @@ export class CollectibleManager {
       const dx = pX - iX;
       const dy = pY - iY;
       const dz = pZ - iZ;
-      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      const pickupDistance = item.radius + 0.5;
 
       // Если произошло столкновение (игрок близко)
-      if (dist < (item.radius + 0.5)) {
+      if (dx * dx + dy * dy + dz * dz < pickupDistance * pickupDistance) {
+        const itemType = item.type;
+        const itemValue = item.value || 0;
+
         // Удаляем с экрана
-        this.scene.remove(item.mesh);
-        this.disposeMesh(item.mesh);
+        this.releaseItem(item);
         this.items.splice(i, 1);
 
         // Обработка типа сбора
-        if (item.type === 'gin') {
-          audioManager.playSFX('pickup');
-          onCollectCallback('gin', item.value);
+        if (itemType === 'gin') {
+          collectedGin += itemValue;
         } 
-        else if (item.type === 'box_flight') {
+        else if (itemType === 'box_flight') {
           // Активируем полет в коробке мгновенно
           player.activateBoxBonus();
           onCollectCallback('box_flight', 0);
         } 
-        else if (item.type === 'fart_refill') {
+        else if (itemType === 'fart_refill') {
           // Полное восстановление заряда пука и временный автополет
           player.activatePinkGinBoost();
           onCollectCallback('fart_refill', 0);
         }
       }
     }
+
+    if (collectedGin > 0) {
+      const now = performance.now();
+      if (now - this.lastPickupSoundAt > 80) {
+        audioManager.playSFX('pickup');
+        this.lastPickupSoundAt = now;
+      }
+      onCollectCallback('gin', collectedGin);
+    }
+  }
+
+  releaseItem(item) {
+    this.scene.remove(item.mesh);
+
+    if (item.type === 'gin' && !this.bottleFBX) {
+      item.mesh.visible = false;
+      this.bottlePool.push(item.mesh);
+      return;
+    }
+
+    this.disposeMesh(item.mesh);
   }
 
   // Очистка геометрии
