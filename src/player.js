@@ -50,6 +50,7 @@ export class Player {
     this.presentationMixer = null;
     this.jumpFBX = null;
     this.jumpMixer = null;
+    this.jumpAction = null;
     this.mixer = null;
     this.fbxActions = {};
     this.loadPresentationModel();
@@ -265,6 +266,8 @@ export class Player {
       this.yVelocity = CONFIG.JUMP_FORCE;
       this.isGrounded = false;
       this.isJumping = true;
+      this.restartJumpAnimation();
+      this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
     }
   }
 
@@ -303,8 +306,12 @@ export class Player {
   setFarting(farting) {
     if (this.isDead || this.activeBonus === 'box') {
       this.isFarting = false;
+      if (this.activeBonus === 'box') this.syncRuntimeModelVisibility(false);
       return;
     }
+
+    const wasFarting = this.isFarting;
+    const previousBonus = this.activeBonus;
 
     if (!farting && this.pinkGinBoostTimer > 0 && this.fartFuel > 0) {
       return;
@@ -329,6 +336,14 @@ export class Player {
         this.activeBonus = null;
       }
     }
+
+    if (!wasFarting && this.isFarting) {
+      this.restartJumpAnimation();
+    }
+
+    if (wasFarting !== this.isFarting || previousBonus !== this.activeBonus) {
+      this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+    }
   }
 
   // Временный бонус с трассы: Розовый джин дает полный заряд и автополет.
@@ -339,12 +354,16 @@ export class Player {
     this.pinkGinBoostTimer = CONFIG.PINK_GIN_BOOST_DURATION;
     this.isFarting = true;
     this.activeBonus = 'fart';
+    this.restartJumpAnimation();
+    this.syncRuntimeModelVisibility(true);
     audioManager.playSFX('puk');
     uiManager.updateBonusHUD('fart', 100);
   }
 
   // Обновление состояния в игровом цикле (deltaTime в секундах)
   update(dt) {
+    const wasJumpPoseActive = this.isJumpPoseActive();
+
     // 1. Постепенное увеличение скорости
     if (!this.isDead) {
       this.previousZ = this.mesh.position.z;
@@ -449,14 +468,20 @@ export class Player {
           this.isGrounded = true;
           this.isJumping = false;
           if (this.activeBonus === 'fart') this.activeBonus = null;
+          this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
         }
       }
     }
 
+    if (wasJumpPoseActive !== this.isJumpPoseActive()) {
+      this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+    }
+
     // Обновляем частицы
     this.updateFartParticles(dt);
-    // Обновляем FBX анимации или псевдо-анимацию (только когда они активны для экономии CPU)
-    if (this.jumpMixer && this.shouldUseJumpModel()) {
+    // Обновляем только активную модель Вани, чтобы скрытые скелеты не тратили кадр.
+    const useJumpModel = this.shouldUseJumpModel();
+    if (this.jumpMixer && useJumpModel) {
       this.jumpMixer.update(dt);
     }
     if (this.presentationMixer && this.presentationMode === 'idle') {
@@ -465,10 +490,10 @@ export class Player {
     if (this.crashMixer && this.isStumbling) {
       this.crashMixer.update(dt);
     }
-    if (this.mixer) {
-      this.mixer.update(dt);
+    if (this.mixer && !useJumpModel && this.presentationMode !== 'idle' && !this.isStumbling && this.activeBonus !== 'box') {
       this.updateFBXAnimations();
-    } else {
+      this.mixer.update(dt);
+    } else if (!this.mixer) {
       this.animateCharacter(dt);
     }
 
@@ -626,13 +651,25 @@ export class Player {
     }
   }
 
+  isJumpPoseActive() {
+    return this.isJumping || this.isFarting || (this.activeBonus === 'fart' && !this.isGrounded);
+  }
+
   shouldUseJumpModel() {
     return Boolean(
       this.jumpFBX &&
       this.presentationMode !== 'idle' &&
       this.activeBonus !== 'box' &&
-      (this.isJumping || this.isFarting || (this.activeBonus === 'fart' && !this.isGrounded))
+      this.isJumpPoseActive()
     );
+  }
+
+  restartJumpAnimation() {
+    if (!this.jumpAction) return;
+
+    this.jumpAction.paused = false;
+    this.jumpAction.reset().play();
+    if (this.jumpMixer) this.jumpMixer.update(0);
   }
 
   syncRuntimeModelVisibility(visible = true) {
@@ -644,21 +681,21 @@ export class Player {
       if (this.presentationFBX) this.presentationFBX.visible = false;
     } else {
       // Обычный бег/прыжок
-      const isJumping = this.isJumping || this.isFarting;
       const isIdle = this.presentationMode === 'idle';
+      const useJumpModel = Boolean(this.jumpFBX && !isIdle && this.isJumpPoseActive());
       
       if (this.fbxModel) {
-        this.fbxModel.visible = visible && !isIdle && !isJumping && !this.isStumbling;
+        this.fbxModel.visible = visible && !isIdle && !useJumpModel && !this.isStumbling;
       }
       if (this.jumpFBX) {
-        this.jumpFBX.visible = visible && !isIdle && isJumping && !this.isStumbling;
+        this.jumpFBX.visible = visible && !isIdle && useJumpModel && !this.isStumbling;
       }
       if (this.crashFBX) {
         this.crashFBX.visible = visible && !isIdle && this.isStumbling;
       }
       if (this.modelGroup) {
         // Показываем примитивного Ваню только если нет реальных моделей
-        const hasRealModel = this.fbxModel || (isIdle && this.presentationFBX);
+        const hasRealModel = this.fbxModel || useJumpModel || (isIdle && this.presentationFBX);
         this.modelGroup.visible = !hasRealModel && visible && !this.isStumbling;
       }
       if (this.presentationFBX) {
@@ -859,8 +896,9 @@ export class Player {
 
           if (gltf.animations && gltf.animations.length > 0) {
             this.jumpMixer = new THREE.AnimationMixer(model);
-            const action = this.jumpMixer.clipAction(gltf.animations[0]);
-            action.play();
+            this.jumpAction = this.jumpMixer.clipAction(gltf.animations[0]);
+            this.jumpAction.play();
+            if (this.isJumpPoseActive()) this.restartJumpAnimation();
           }
 
           this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
@@ -869,6 +907,7 @@ export class Player {
           console.error('Error parsing Vanya jump GLB:', e);
           this.jumpFBX = null;
           this.jumpMixer = null;
+          this.jumpAction = null;
         }
       }, undefined, () => tryLoad(index + 1));
     };
