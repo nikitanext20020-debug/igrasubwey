@@ -6,6 +6,7 @@ class AudioManager {
     this.currentMusic = null;
     this.currentVoice = null;
     this.lastVoiceTime = 0;
+    this.audioUnlocked = false;
     
     // Пути к аудиофайлам
     this.paths = {
@@ -29,8 +30,7 @@ class AudioManager {
       
       voiceLiza: [
         'audio/voices/voice5.mp3',
-        'audio/voices/voice6.mp3',
-        'audio/voices/voice7.mp3'
+        'audio/voices/voice6.mp3'
       ]
     };
     
@@ -39,17 +39,53 @@ class AudioManager {
       menu: this.createAudio(this.paths.menuMusic, true),
       run: this.createAudio(this.paths.runMusic, true)
     };
+
+    this.sfxElements = {
+      pickup: this.createAudio(this.paths.pickup),
+      crash: this.createAudio(this.paths.crash),
+      puk: this.createAudio(this.paths.puk)
+    };
+
+    this.voiceElements = {};
+    [
+      this.paths.voiceVanyaSpawn,
+      this.paths.voiceVanyaBox,
+      ...this.paths.voiceBabushka,
+      ...this.paths.voiceLiza
+    ].forEach(src => {
+      this.voiceElements[src] = this.createAudio(src);
+    });
+
+    window.addEventListener('pointerdown', () => this.unlockAudio(), { once: true, passive: true });
+    window.addEventListener('keydown', () => this.unlockAudio(), { once: true });
   }
 
   // Создание аудио с заглушкой ошибок
   createAudio(src, loop = false) {
     const audio = new Audio(src);
     audio.loop = loop;
+    audio.preload = 'auto';
+    audio.load();
     audio.addEventListener('error', (e) => {
       // Игнорируем ошибки отсутствия файлов, чтобы игра продолжала работать
       console.warn(`Аудиофайл не найден или не может быть загружен: ${src}`);
     });
     return audio;
+  }
+
+  unlockAudio() {
+    if (this.audioUnlocked) return;
+    this.audioUnlocked = true;
+
+    const all = [
+      ...Object.values(this.musicElements),
+      ...Object.values(this.sfxElements),
+      ...Object.values(this.voiceElements)
+    ];
+
+    all.forEach(audio => {
+      audio.load();
+    });
   }
 
   // Включение/выключение звука
@@ -99,11 +135,12 @@ class AudioManager {
   playSFX(type) {
     if (!this.soundEnabled) return;
     
-    const src = this.paths[type];
-    if (!src) return;
+    const sfx = this.sfxElements[type];
+    if (!sfx) return;
 
-    const sfx = this.createAudio(src);
     sfx.volume = 0.6;
+    sfx.pause();
+    sfx.currentTime = 0;
     sfx.play().catch(() => {});
   }
 
@@ -124,11 +161,13 @@ class AudioManager {
       this.currentVoice = null;
     }
 
-    const voice = this.createAudio(src);
+    const voice = this.voiceElements[src] || this.createAudio(src);
     voice.volume = 1.0;
     this.currentVoice = voice;
     this.lastVoiceTime = now;
     
+    voice.pause();
+    voice.currentTime = 0;
     voice.play().catch(() => {});
     return true;
   }
@@ -146,8 +185,8 @@ class AudioManager {
   // Случайная озвучка бабушки
   playBabushkaVoice() {
     const chance = Math.random();
-    // Вероятность 35% и задержка минимум 4 секунды между голосами
-    if (chance < 0.35 && (Date.now() - this.lastVoiceTime > 4000)) {
+    // Вероятность 45% и короткий кулдаун, чтобы фраза звучала около препятствия.
+    if (chance < 0.45 && (Date.now() - this.lastVoiceTime > 1800)) {
       const idx = Math.floor(Math.random() * this.paths.voiceBabushka.length);
       this.playVoice(this.paths.voiceBabushka[idx]);
     }

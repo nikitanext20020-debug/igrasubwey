@@ -2,22 +2,53 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Ваня Бежит! - 3D Раннер</title>
   <meta name="description" content="Полноценный 3D-раннер в стиле Subway Surfers в российском дворе. Уворачивайся от бабушек, собирай джин и летай на коробке!">
+  <script>
+    window.addEventListener('error', function(e) {
+      var errDiv = document.getElementById('debug-err') || document.createElement('div');
+      errDiv.id = 'debug-err';
+      errDiv.style.position = 'fixed';
+      errDiv.style.top = '10px';
+      errDiv.style.left = '10px';
+      errDiv.style.width = 'calc(100% - 20px)';
+      errDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.95)';
+      errDiv.style.color = 'white';
+      errDiv.style.padding = '15px';
+      errDiv.style.zIndex = '999999';
+      errDiv.style.fontFamily = 'monospace';
+      errDiv.style.whiteSpace = 'pre-wrap';
+      errDiv.style.borderRadius = '5px';
+      errDiv.style.fontSize = '12px';
+      errDiv.innerHTML = '<b>JS Error:</b> ' + e.message + '<br>at ' + e.filename + ':' + e.lineno;
+      document.body.appendChild(errDiv);
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      var errDiv = document.getElementById('debug-err') || document.createElement('div');
+      errDiv.id = 'debug-err';
+      errDiv.style.position = 'fixed';
+      errDiv.style.top = '10px';
+      errDiv.style.left = '10px';
+      errDiv.style.width = 'calc(100% - 20px)';
+      errDiv.style.backgroundColor = 'rgba(255, 69, 0, 0.95)';
+      errDiv.style.color = 'white';
+      errDiv.style.padding = '15px';
+      errDiv.style.zIndex = '999999';
+      errDiv.style.fontFamily = 'monospace';
+      errDiv.style.whiteSpace = 'pre-wrap';
+      errDiv.style.borderRadius = '5px';
+      errDiv.style.fontSize = '12px';
+      errDiv.innerHTML = '<b>Unhandled Promise Rejection:</b> ' + (e.reason ? (e.reason.message || e.reason) : e.reason);
+      document.body.appendChild(errDiv);
+    });
+  </script>
+  <link rel="preload" href="/models/vanya.glb" as="fetch" crossorigin>
+  <link rel="preload" href="/models/liza.glb" as="fetch" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <!-- Импорт Three.js через Importmap -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
-      }
-    }
-  </script>
 </head>
 <body>
   <!-- Canvas для 3D графики -->
@@ -30,7 +61,7 @@
     <div id="main-menu" class="ui-screen active">
       <div class="menu-header">
         <h1 class="game-title">ВАНЯ<br><span class="accent-title">БЕЖИТ!</span></h1>
-        <p class="game-subtitle">Эпический 3D раннер во дворе</p>
+        <p class="game-subtitle">Ваня, беги. Лиза уже рядом.</p>
       </div>
       
       <div class="menu-stats">
@@ -77,8 +108,8 @@
         <div class="shop-item" id="item-box">
           <div class="item-icon">📦✈️</div>
           <div class="item-info">
-            <h3 class="item-name">Коробка-самолёт</h3>
-            <p class="item-desc">Позволяет летать над бабушками в картонной коробке (5-8 сек). В полете ты неуязвим!</p>
+            <h3 class="item-name">Доставка на вб</h3>
+            <p class="item-desc">Позволяет летать над бабушками в картонной коробке. В полете ты неуязвим!</p>
           </div>
           <button id="btn-buy-box" class="btn btn-buy">Купить (10 🍾)</button>
         </div>
@@ -90,7 +121,7 @@
           </div>
           <div class="item-info">
             <h3 class="item-name">Розовый джин</h3>
-            <p class="item-desc">Реактивный пук! Подбери бутылку на трассе для автополета или разблокируй ручной полет.</p>
+            <p class="item-desc">Реактивный пук на один забег. Можно купить до 3 штук перед стартом.</p>
           </div>
           <button id="btn-buy-fart" class="btn btn-buy">Купить (25 🍾)</button>
         </div>
@@ -111,13 +142,18 @@
     <div id="hud" class="ui-screen">
       <div class="hud-top">
         <div class="hud-left">
-          <div class="hud-badge">
+          <div id="hud-bottles-badge" class="hud-badge">
             <span class="hud-icon">🍾</span>
             <span id="hud-bottles">0</span>
           </div>
         </div>
         <div class="hud-center">
           <div id="hud-score" class="score-display">000000</div>
+          <div class="chase-meter" aria-hidden="true">
+            <span class="chase-label">ЛИЗА</span>
+            <div class="chase-track"><div id="chase-fill" class="chase-fill"></div></div>
+            <span id="chase-status" class="chase-status">ДАЛЕКО</span>
+          </div>
         </div>
         <div class="hud-right">
           <button id="btn-pause" class="btn-pause">⏸</button>

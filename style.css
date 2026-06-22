@@ -12,6 +12,9 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-text-size-adjust: 100%;
   background-color: #0b0f19;
   color: #ffffff;
 }
@@ -25,6 +28,7 @@ html, body {
   height: 100%;
   z-index: 1;
   display: block;
+  touch-action: none;
 }
 
 /* Контейнер интерфейса */
@@ -66,7 +70,9 @@ html, body {
 #main-menu {
   justify-content: space-between;
   padding: 60px 20px;
-  background: linear-gradient(180deg, rgba(11, 15, 25, 0.4) 0%, rgba(11, 15, 25, 0.8) 100%);
+  background:
+    radial-gradient(circle at 52% 22%, rgba(255, 178, 94, 0.22), transparent 22%),
+    linear-gradient(180deg, rgba(9, 14, 28, 0.28) 0%, rgba(11, 15, 25, 0.76) 72%, rgba(7, 9, 15, 0.92) 100%);
 }
 
 #hud {
@@ -126,10 +132,11 @@ html, body {
 
 .game-subtitle {
   font-size: 1rem;
-  color: #8fa0c0;
+  color: #ffd8a8;
   text-transform: uppercase;
   letter-spacing: 2px;
   font-weight: 700;
+  text-shadow: 0 2px 10px rgba(255, 107, 53, 0.25);
 }
 
 /* Статистика в меню */
@@ -399,6 +406,7 @@ html, body {
 }
 
 .hud-badge {
+  position: relative;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 8px 16px;
@@ -413,12 +421,95 @@ html, body {
   color: #00ffcc;
 }
 
+.hud-badge.pickup-pop {
+  animation: bottleBadgePop 0.35s ease-out;
+  border-color: rgba(57, 255, 157, 0.65);
+  box-shadow: 0 0 18px rgba(57, 255, 157, 0.38);
+}
+
+.bottle-float {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff2a8;
+  font-weight: 900;
+  font-size: 1rem;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  animation: bottleFloat 0.75s ease-out forwards;
+}
+
+@keyframes bottleBadgePop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+
+@keyframes bottleFloat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -35%) scale(0.72);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -145%) scale(1.08);
+  }
+}
+
 .score-display {
   font-size: 2rem;
   font-weight: 900;
   letter-spacing: 2px;
   text-shadow: 0 0 10px rgba(0,0,0,0.5);
   color: #ffffff;
+}
+
+.hud-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.chase-meter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.chase-label,
+.chase-status {
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #ffd8a8;
+}
+
+.chase-track {
+  width: 96px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.chase-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #39ff9d, #ffd43b, #ff3b5c);
+  transition: width 0.25s ease;
 }
 
 .btn-pause {

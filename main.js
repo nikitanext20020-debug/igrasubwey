@@ -9,9 +9,11 @@ import { WorldGenerator } from './src/world.js';
 import { ObstacleManager } from './src/obstacles.js';
 import { CollectibleManager } from './src/collectibles.js';
 
+THREE.Cache.enabled = true;
+
 class Game {
   constructor() {
-    this.state = 'MENU'; // 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER'
+    this.state = 'MENU'; // 'MENU', 'INTRO', 'PLAYING', 'PAUSED', 'GAMEOVER'
     
     // Игровой счет и бутылки за текущий забег
     this.score = 0;
@@ -19,6 +21,11 @@ class Game {
     
     // Таймер дельта-времени
     this.clock = new THREE.Clock();
+    this.introTimer = 0;
+    this.startWithBoxBonus = false;
+    this.stumbleLevel = 0;
+    this.collisionCooldown = 0;
+    this.cleanRunTimer = 0;
 
     this.initEngine();
     this.initObjects();
@@ -37,20 +44,21 @@ class Game {
     // Запускаем музыку меню сразу
     audioManager.playMusic('menu');
     
-    // Переводим камеру в режим меню
-    this.setupCameraForMenu();
+    // Переводим сцену в режим меню
+    this.setupMenuScene();
   }
 
   // Инициализация Three.js движка (сцена, рендерер, камера, свет, туман)
   initEngine() {
     this.canvas = document.getElementById('gameCanvas');
+    this.isMobileRuntime = window.innerWidth < 820 || /Android|iPhone|iPad|iPod|Telegram/i.test(navigator.userAgent);
     
     // Сцена
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a2b3c); // Синеватые сумерки во дворе
+    this.scene.background = new THREE.Color(0x18233a); // Ночная база под градиентный sky-dome
     
     // Туман (Fog) скрывает прогрузку новых чанков
-    this.scene.fog = new THREE.FogExp2(0x1a2b3c, 0.015);
+    this.scene.fog = new THREE.FogExp2(0x2c405f, 0.0075);
 
     // Камера
     this.camera = new THREE.PerspectiveCamera(
@@ -63,13 +71,13 @@ class Game {
     // Рендерер
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      antialias: !this.isMobileRuntime,
       powerPreference: "high-performance"
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.isMobileRuntime ? 1.15 : 1.75));
+    this.renderer.shadowMap.enabled = !this.isMobileRuntime;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // Освещение
     // 1. Мягкий полусферический свет (небо/земля)
@@ -80,11 +88,11 @@ class Game {
     // 2. Направленный свет с тенями (имитация заходящего солнца / фонаря)
     this.dirLight = new THREE.DirectionalLight(0xffaa66, 1.0);
     this.dirLight.position.set(10, 25, 10);
-    this.dirLight.castShadow = true;
+    this.dirLight.castShadow = !this.isMobileRuntime;
     
     // Настройка теней для оптимизации
-    this.dirLight.shadow.mapSize.width = 1024;
-    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.mapSize.width = this.isMobileRuntime ? 512 : 1024;
+    this.dirLight.shadow.mapSize.height = this.isMobileRuntime ? 512 : 1024;
     this.dirLight.shadow.camera.near = 0.5;
     this.dirLight.shadow.camera.far = 80;
     const d = 25;
@@ -95,9 +103,63 @@ class Game {
     this.dirLight.shadow.bias = -0.0005;
 
     this.scene.add(this.dirLight);
+    this.createSkyDome();
 
     // Обработка ресайза
     window.addEventListener('resize', () => this.onWindowResize());
+  }
+
+  createSkyDome() {
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 32;
+    skyCanvas.height = 256;
+    const ctx = skyCanvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, skyCanvas.height);
+    gradient.addColorStop(0, '#10264c');
+    gradient.addColorStop(0.42, '#3d5f91');
+    gradient.addColorStop(0.72, '#ff9d68');
+    gradient.addColorStop(1, '#7b4a6e');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
+
+    const texture = new THREE.CanvasTexture(skyCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const sky = new THREE.Mesh(
+      new THREE.SphereGeometry(420, 32, 16),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide, fog: false })
+    );
+    sky.rotation.y = Math.PI * 0.15;
+    this.scene.add(sky);
+    this.sky = sky;
+
+    const moon = new THREE.Mesh(
+      new THREE.SphereGeometry(7, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffd6a3 })
+    );
+    moon.position.set(-72, 92, 92);
+    this.scene.add(moon);
+    this.moon = moon;
+
+    const starGeo = new THREE.BufferGeometry();
+    const starPositions = [];
+    const starCount = this.isMobileRuntime ? 45 : 90;
+    for (let i = 0; i < starCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 170 + Math.random() * 170;
+      starPositions.push(
+        Math.cos(angle) * radius,
+        65 + Math.random() * 130,
+        Math.sin(angle) * radius
+      );
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    const stars = new THREE.Points(
+      starGeo,
+      new THREE.PointsMaterial({ color: 0xfff2c8, size: 1.6, sizeAttenuation: true, fog: false })
+    );
+    this.scene.add(stars);
+    this.stars = stars;
   }
 
   // Создание игровых объектов и менеджеров
@@ -112,15 +174,119 @@ class Game {
     this.worldGen.reset();
   }
 
-  // Настройка ракурса камеры для главного меню (крупный план Вани)
-  setupCameraForMenu() {
-    this.camera.position.set(0, 1.6, 3.5);
-    this.camera.lookAt(new THREE.Vector3(0, 0.9, 0));
+  // Настройка витринной сцены меню: Ваня близко к камере, Лиза видна в кадре.
+  setupMenuScene() {
+    this.worldGen.reset();
+    this.player.reset();
+    this.pursuer.reset();
+
+    this.player.mesh.position.set(-0.35, 0, 0.4);
+    this.player.mesh.rotation.y = 0;
+    this.player.setPresentationMode('idle');
+
+    this.pursuer.mesh.position.set(1.15, 0, -0.55);
+    this.pursuer.mesh.rotation.y = -0.25;
+    this.pursuer.setPresentationMode('kick');
+
+    this.camera.position.set(0, 1.35, 3.05);
+    this.camera.lookAt(new THREE.Vector3(-0.25, 1.05, 0));
+  }
+
+  // Постановочная сцена перед забегом: Ваня и Лиза встречаются взглядом.
+  setupIntroScene() {
+    this.introTimer = 0;
+
+    this.player.mesh.position.set(-0.72, 0, 0.3);
+    this.player.mesh.rotation.y = Math.PI / 2;
+    this.player.setPresentationMode('idle');
+
+    this.pursuer.mesh.position.set(0.72, 0, 0.3);
+    this.pursuer.mesh.rotation.y = -Math.PI / 2;
+    this.pursuer.setPresentationMode('kick');
+
+    this.camera.position.set(0, 1.25, 2.75);
+    this.camera.lookAt(new THREE.Vector3(0, 1.05, 0.25));
+  }
+
+  updateMenuCamera(dt) {
+    const time = performance.now() * 0.001;
+    const target = new THREE.Vector3(-0.2 + Math.sin(time * 0.55) * 0.08, 1.08, 0.05);
+
+    this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, Math.sin(time * 0.4) * 0.08, 2 * dt);
+    this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 1.35, 3 * dt);
+    this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, 3.05, 3 * dt);
+    this.camera.lookAt(target);
+  }
+
+  updateIntroScene(dt) {
+    this.introTimer += dt;
+
+    const turnProgress = THREE.MathUtils.smoothstep(this.introTimer, 1.05, 1.75);
+    this.player.mesh.rotation.y = THREE.MathUtils.lerp(Math.PI / 2, 0, turnProgress);
+    this.pursuer.mesh.rotation.y = THREE.MathUtils.lerp(-Math.PI / 2, 0, turnProgress);
+    if (this.introTimer > 1.2 && this.pursuer.presentationMode !== 'run') {
+      this.pursuer.setPresentationMode('run');
+    }
+
+    this.player.updatePresentation(dt);
+    this.pursuer.updatePresentation(dt);
+  }
+
+  updateIntroCamera(dt) {
+    const progress = THREE.MathUtils.smoothstep(this.introTimer, 0.85, 1.8);
+    const startPos = new THREE.Vector3(0, 1.25, 2.75);
+    const runPos = new THREE.Vector3(0, 2.4, -4.2);
+    const camPos = startPos.lerp(runPos, progress);
+    const lookAtPos = new THREE.Vector3(0, 1.1, THREE.MathUtils.lerp(0.25, 6, progress));
+
+    this.camera.position.lerp(camPos, 7 * dt);
+    this.camera.lookAt(lookAtPos);
+  }
+
+  beginRunAfterIntro() {
+    this.state = 'PLAYING';
+    this.player.mesh.position.set(0, 0, 0);
+    this.player.mesh.rotation.y = 0;
+    this.player.setPresentationMode('run');
+    this.pursuer.reset();
+
+    audioManager.playMusic('run');
+    audioManager.playVanyaSpawn();
+
+    if (this.startWithBoxBonus) {
+      this.player.activateBoxBonus();
+    }
+
+    this.clock.getDelta();
   }
 
   // Обновление положения камеры в процессе бега (слежение за Ваней)
   updateCamera(dt) {
     if (this.state === 'PAUSED') return;
+
+    // Смещение скайдома, луны и звезд за игроком
+    if (this.sky) {
+      this.sky.position.z = this.player.mesh.position.z;
+      this.sky.position.x = this.player.mesh.position.x;
+    }
+    if (this.moon) {
+      this.moon.position.z = this.player.mesh.position.z + 92;
+      this.moon.position.x = this.player.mesh.position.x - 72;
+    }
+    if (this.stars) {
+      this.stars.position.z = this.player.mesh.position.z;
+      this.stars.position.x = this.player.mesh.position.x;
+    }
+
+    if (this.state === 'MENU') {
+      this.updateMenuCamera(dt);
+      return;
+    }
+
+    if (this.state === 'INTRO') {
+      this.updateIntroCamera(dt);
+      return;
+    }
 
     // Целевая позиция камеры (сзади и сверху над игроком)
     let targetCamY = this.player.mesh.position.y + 3.0;
@@ -306,9 +472,12 @@ class Game {
 
   // Старт нового забега
   startGame() {
-    this.state = 'PLAYING';
+    this.state = 'INTRO';
     this.score = 0;
     this.collectedBottles = 0;
+    this.stumbleLevel = 0;
+    this.collisionCooldown = 0;
+    this.cleanRunTimer = 0;
 
     // Сброс всех компонентов
     this.worldGen.reset();
@@ -320,14 +489,10 @@ class Game {
     // Запускаем HUD
     uiManager.startHUD();
 
-    // Музыка и звуки
-    audioManager.playMusic('run');
-    audioManager.playVanyaSpawn();
-
-    // Проверяем, есть ли купленная Коробка-самолет и активируем ее
-    if (uiManager.useBox()) {
-      this.player.activateBoxBonus();
-    }
+    audioManager.stopMusic();
+    this.startWithBoxBonus = uiManager.useBox();
+    this.player.setFartCharges(uiManager.useFartChargesForRun());
+    this.setupIntroScene();
 
     this.clock.getDelta(); // Сброс таймера дельты
   }
@@ -354,18 +519,15 @@ class Game {
     this.state = 'MENU';
     audioManager.playMusic('menu');
     uiManager.showScreen('main-menu');
-    this.setupCameraForMenu();
-    this.player.reset();
-    this.pursuer.reset();
+    this.setupMenuScene();
   }
 
   // Столкновение - конец игры
   triggerGameOver() {
     this.state = 'GAMEOVER';
     
-    // Проигрываем звук аварии
-    audioManager.playSFX('crash');
-    audioManager.stopMusic();
+    // При проигрыше музыка и звуки останавливаются
+    audioManager.stopAll();
 
     // Лиза подбегает вплотную
     this.pursuer.catchUp();
@@ -377,6 +539,46 @@ class Game {
         uiManager.showGameOver(this.score, this.collectedBottles);
       }
     }, 1500);
+  }
+
+  handleCollision(collision) {
+    if (!collision) return;
+
+    if (this.collisionCooldown > 0) {
+      // If Vanya is currently invulnerable, still trigger the visual hit/destruction effect on the obstacle
+      this.obstacleManager.playHitEffect(collision);
+      collision.wasHit = true;
+      return;
+    }
+
+    this.obstacleManager.playHitEffect(collision);
+    collision.wasHit = true;
+    this.cleanRunTimer = 0;
+    this.collisionCooldown = CONFIG.STUMBLE_INVULNERABILITY / 1000;
+
+    if (this.stumbleLevel >= 1) {
+      this.triggerGameOver();
+      return;
+    }
+
+    this.stumbleLevel = 1;
+    this.player.runSpeed = Math.max(CONFIG.INITIAL_SPEED * 0.72, this.player.runSpeed * 0.72);
+    this.pursuer.setChaseDistance(CONFIG.LIZA_WARNING_DISTANCE);
+    audioManager.playSFX('crash');
+  }
+
+  updateChasePressure(dt) {
+    if (this.collisionCooldown > 0) {
+      this.collisionCooldown = Math.max(0, this.collisionCooldown - dt);
+    }
+
+    this.cleanRunTimer += dt * 1000;
+    if (this.cleanRunTimer >= CONFIG.LIZA_RECOVERY_DELAY) {
+      this.stumbleLevel = 0;
+      this.pursuer.recoverDistance(dt);
+    }
+
+    uiManager.updateChaseMeter(this.pursuer.getDangerPercent());
   }
 
   // Главный цикл рендеринга и апдейтов физики
@@ -394,12 +596,13 @@ class Game {
 
       // 3. Обновление Лизы
       this.pursuer.update(dt, this.player.mesh.position, this.player.runSpeed, true);
+      this.updateChasePressure(dt);
 
       // 4. Обновление препятствий и проверка столкновений
       this.obstacleManager.update(dt, this.player.mesh.position.z);
       const collision = this.obstacleManager.checkCollisions(this.player);
       if (collision) {
-        this.triggerGameOver();
+        this.handleCollision(collision);
       }
 
       // 5. Обновление собираемых предметов и проверка сбора
@@ -432,15 +635,16 @@ class Game {
       this.player.update(dt);
       this.pursuer.update(dt, this.player.mesh.position, this.player.runSpeed, true);
     } 
+    else if (this.state === 'INTRO') {
+      this.updateIntroScene(dt);
+
+      if (this.introTimer >= 2.05) {
+        this.beginRunAfterIntro();
+      }
+    }
     else if (this.state === 'MENU') {
-      // В главном меню Ваня и Лиза бегут вперед, мир бесконечно генерируется без препятствий
-      this.worldGen.update(this.player.mesh.position.z);
-      this.player.update(dt);
-      this.pursuer.update(dt, this.player.mesh.position, this.player.runSpeed, true);
-      this.activeChunksCheck();
-      
-      // Направление бега - вперед
-      this.player.mesh.rotation.y = 0;
+      this.player.updatePresentation(dt);
+      this.pursuer.updatePresentation(dt);
     }
 
     // Слежение камеры
@@ -458,10 +662,15 @@ class Game {
         // Первые 40 метров игры (стартовая зона) оставляем свободными
         // Препятствия спавним только во время реальной игры (PLAYING)
         if (this.state === 'PLAYING' && chunk.startZ > 30) {
+          if (!this.obstacleManager.babushkaFBX) {
+            return;
+          }
           this.obstacleManager.spawnObstaclesForChunk(chunk.startZ, this.worldGen.chunkLength);
           this.collectibleManager.spawnCollectiblesForChunk(chunk.startZ, this.worldGen.chunkLength);
+          chunk.hasObstacles = true;
+        } else if (chunk.startZ <= 30) {
+          chunk.hasObstacles = true;
         }
-        chunk.hasObstacles = true;
       }
     });
   }
@@ -476,5 +685,5 @@ class Game {
 
 // Инициализация при загрузке страницы
 window.addEventListener('load', () => {
-  new Game();
+  window.__game = new Game();
 });

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { audioManager } from './audio.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class CollectibleManager {
   constructor(scene) {
@@ -44,22 +44,22 @@ export class CollectibleManager {
 
     // Подключение FBX Бутылки
     this.bottleFBX = null;
-    this.loadFBXModel();
+    setTimeout(() => this.loadFBXModel(), 2500);
   }
 
-  // Загрузка FBX модели бутылки
+  // Загрузка GLB модели бутылки
   loadFBXModel() {
-    const loader = new FBXLoader();
-    loader.load('models/bottle.fbx', (fbx) => {
+    const loader = new GLTFLoader();
+    loader.load('models/bottle.glb', (gltf) => {
       try {
-        this.bottleFBX = fbx;
-        console.log('Bottle FBX Model loaded successfully!');
+        this.bottleFBX = gltf.scene;
+        console.log('Bottle GLB Model loaded successfully!');
       } catch (e) {
-        console.error('Error parsing Bottle FBX Model:', e);
+        console.error('Error parsing Bottle GLB Model:', e);
         this.bottleFBX = null;
       }
     }, undefined, (err) => {
-      console.warn('Bottle FBX Model file models/bottle.fbx not found. Playing with fallback rounded primitives.');
+      console.warn('Bottle GLB Model file models/bottle.glb not found. Playing with fallback rounded primitives.');
     });
   }
 
@@ -115,7 +115,7 @@ export class CollectibleManager {
       const clone = this.bottleFBX.clone();
       
       // Настраиваем масштаб (подбираем размер, чтобы бутылка была высотой примерно 0.6м)
-      clone.scale.setScalar(0.0055); 
+      clone.scale.setScalar(0.55); 
       clone.position.set(0, 0.15, 0);
       clone.rotation.set(0, 0, 0);
       

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { audioManager } from './audio.js';
 import { uiManager } from './ui.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Player {
   constructor(scene) {
@@ -27,24 +27,34 @@ export class Player {
     this.fartFuel = CONFIG.FART_MAX_FUEL;
     this.isFarting = false;
     this.pinkGinBoostTimer = 0;
+    this.manualFartCharges = 0;
+    this.manualFartActive = false;
 
     // Состояния бонусов
     this.activeBonus = null; // 'box' или 'fart'
     this.boxTimer = 0;
+    this.presentationMode = 'run';
 
     // Для коллизий
     this.width = 1.0;
     this.height = 1.8;
     this.depth = 0.8;
+    this.previousZ = 0;
 
     this.buildCharacter();
     this.reset();
 
     // Подключение FBX
     this.fbxModel = null;
+    this.presentationFBX = null;
+    this.presentationMixer = null;
+    this.jumpFBX = null;
+    this.jumpMixer = null;
     this.mixer = null;
     this.fbxActions = {};
-    this.loadFBXModel();
+    this.loadPresentationModel();
+    setTimeout(() => this.loadFBXModel(), 500);
+    setTimeout(() => this.loadJumpModel(), 1500);
   }
 
   // Создание low-poly 3D-модели Вани из примитивов
@@ -176,15 +186,17 @@ export class Player {
     this.scene.add(this.fartParticleGroup);
     
     this.fartMaterial = new THREE.MeshBasicMaterial({
-      color: 0x5a7d32, // Зеленоватый газ
+      color: 0xc7e9a0, // Светлый короткий след, чтобы не собирался в темную стену
       transparent: true,
-      opacity: 0.6
+      opacity: 0.22,
+      depthWrite: false
     });
-    this.fartGeo = new THREE.SphereGeometry(0.2, 4, 4);
+    this.fartGeo = new THREE.SphereGeometry(0.13, 4, 4);
   }
 
   reset() {
     this.mesh.position.set(0, 0, 0);
+    this.previousZ = 0;
     this.targetX = 0;
     this.currentLane = 0;
     this.yVelocity = 0;
@@ -197,16 +209,17 @@ export class Player {
     this.fartFuel = CONFIG.FART_MAX_FUEL;
     this.isFarting = false;
     this.pinkGinBoostTimer = 0;
+    this.manualFartCharges = 0;
+    this.manualFartActive = false;
     
     this.activeBonus = null;
     this.boxTimer = 0;
     
     this.boxBonusGroup.visible = false;
     
-    // Показываем примитивы только если FBX модель не загружена
-    this.modelGroup.visible = !this.fbxModel;
+    // Fallback-примитивы больше не показываем: в кадре должна быть только загруженная FBX-модель.
+    this.setCharacterVisible(true);
     if (this.fbxModel) {
-      this.fbxModel.visible = true;
       this.fbxModel.position.set(0, 0, 0);
       this.fbxModel.rotation.set(0, 0, 0);
     }
@@ -272,8 +285,15 @@ export class Player {
     this.activeBonus = 'box';
     this.boxTimer = CONFIG.BOX_DURATION;
     this.boxBonusGroup.visible = true;
-    this.modelGroup.visible = false;
+    this.setCharacterVisible(false);
     audioManager.playVanyaBox();
+  }
+
+  setFartCharges(charges) {
+    this.manualFartCharges = Math.max(0, Math.min(CONFIG.FART_MAX_RUN_CHARGES, charges));
+    this.manualFartActive = false;
+    this.fartFuel = CONFIG.FART_MAX_FUEL;
+    uiManager.updateBonusHUD('fart', this.manualFartCharges > 0 ? 100 : 0);
   }
 
   // Активация/деактивация пука
@@ -287,7 +307,13 @@ export class Player {
       return;
     }
     
-    const canUseFart = uiManager.inventory.fart || this.pinkGinBoostTimer > 0;
+    if (farting && this.pinkGinBoostTimer <= 0 && !this.manualFartActive && this.manualFartCharges > 0) {
+      this.manualFartCharges--;
+      this.manualFartActive = true;
+      this.fartFuel = CONFIG.FART_MAX_FUEL;
+    }
+
+    const canUseFart = this.manualFartActive || this.pinkGinBoostTimer > 0;
     if (farting && canUseFart && this.fartFuel > 5) {
       if (!this.isFarting) {
         audioManager.playSFX('puk');
@@ -318,13 +344,14 @@ export class Player {
   update(dt) {
     // 1. Постепенное увеличение скорости
     if (!this.isDead) {
+      this.previousZ = this.mesh.position.z;
       this.runSpeed = Math.min(this.runSpeed + CONFIG.ACCELERATION * dt, CONFIG.MAX_SPEED);
       this.mesh.position.z += this.runSpeed * dt;
     }
 
     if (this.pinkGinBoostTimer > 0 && this.activeBonus !== 'box') {
       this.pinkGinBoostTimer = Math.max(0, this.pinkGinBoostTimer - dt * 1000);
-      if (this.pinkGinBoostTimer <= 0 && !uiManager.inventory.fart) {
+      if (this.pinkGinBoostTimer <= 0 && !this.manualFartActive) {
         this.isFarting = false;
         if (this.activeBonus === 'fart') this.activeBonus = null;
         uiManager.updateBonusHUD('fart', 0);
@@ -370,7 +397,7 @@ export class Player {
       if (this.boxTimer <= 0) {
         this.activeBonus = null;
         this.boxBonusGroup.visible = false;
-        this.modelGroup.visible = true;
+        this.setCharacterVisible(true);
         uiManager.updateBonusHUD('box', 0);
       }
     } 
@@ -395,17 +422,17 @@ export class Player {
 
       if (this.fartFuel <= 0) {
         this.pinkGinBoostTimer = 0;
+        this.manualFartActive = false;
         this.setFarting(false);
       }
     } 
     // 6. Обычная физика прыжка и падения (гравитация)
     else {
       // Восстановление топлива реактивного пука, если не пукаем
-      if (uiManager.inventory.fart && this.fartFuel < CONFIG.FART_MAX_FUEL) {
-        this.fartFuel = Math.min(CONFIG.FART_MAX_FUEL, this.fartFuel + CONFIG.FART_REGEN_RATE * dt);
+      if (this.manualFartActive) {
         uiManager.updateBonusHUD('fart', (this.fartFuel / CONFIG.FART_MAX_FUEL) * 100);
-      } else if (!uiManager.inventory.fart && this.pinkGinBoostTimer <= 0) {
-        uiManager.updateBonusHUD('fart', 0);
+      } else if (this.pinkGinBoostTimer <= 0) {
+        uiManager.updateBonusHUD('fart', this.manualFartCharges > 0 ? 100 : 0);
       }
 
       if (!this.isGrounded) {
@@ -426,18 +453,32 @@ export class Player {
     // Обновляем частицы
     this.updateFartParticles(dt);
 
+    this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+
     // Обновляем FBX анимации или псевдо-анимацию
+    if (this.jumpMixer && this.jumpFBX && this.jumpFBX.visible) {
+      this.jumpMixer.update(dt);
+    }
     if (this.mixer) {
       this.mixer.update(dt);
       this.updateFBXAnimations();
     } else {
       this.animateCharacter(dt);
     }
+
+    // Flicker effect when invulnerable/stumbled
+    const isInvuln = window.__game && window.__game.state === 'PLAYING' && window.__game.collisionCooldown > 0;
+    if (isInvuln) {
+      const flash = (Math.floor(Date.now() / 90) % 2) === 0;
+      this.setCharacterMeshOpacity(flash ? 0.35 : 0.85);
+    } else {
+      this.setCharacterMeshOpacity(1.0);
+    }
   }
 
   // Генерация облаков газа под Ваней
   emitFartParticles() {
-    const pCount = 2;
+    const pCount = 1;
     for (let i = 0; i < pCount; i++) {
       const pMesh = new THREE.Mesh(this.fartGeo, this.fartMaterial);
       
@@ -453,9 +494,9 @@ export class Player {
       this.fartParticles.push({
         mesh: pMesh,
         velX: (Math.random() - 0.5) * 1.5,
-        velY: -1 - Math.random() * 2,
-        velZ: -this.runSpeed * 0.5 + (Math.random() - 0.5) * 2,
-        life: 0.6 + Math.random() * 0.4
+        velY: -0.65 - Math.random() * 1.1,
+        velZ: -2.5 - Math.random() * 2,
+        life: 0.32 + Math.random() * 0.22
       });
     }
   }
@@ -470,11 +511,11 @@ export class Player {
       p.mesh.position.y += p.velY * dt;
       p.mesh.position.z += p.velZ * dt;
       
-      p.mesh.scale.multiplyScalar(1 + dt * 1.5); // расширение газа
+      p.mesh.scale.multiplyScalar(1 + dt * 0.8); // мягкое расширение газа
 
       if (p.life <= 0) {
         this.fartParticleGroup.remove(p.mesh);
-        p.mesh.geometry.dispose();
+        // Не удаляем разделяемую геометрию this.fartGeo!
         this.fartParticles.splice(i, 1);
       }
     }
@@ -554,37 +595,117 @@ export class Player {
     return this.activeBonus === 'box' || (this.activeBonus === 'fart' && this.mesh.position.y > 1.0);
   }
 
-  // Загрузка FBX модели
+  setCharacterVisible(visible) {
+    this.syncRuntimeModelVisibility(visible);
+  }
+
+  shouldUseJumpModel() {
+    return Boolean(
+      this.jumpFBX &&
+      this.presentationMode !== 'idle' &&
+      this.activeBonus !== 'box' &&
+      (this.isJumping || this.isFarting || (this.activeBonus === 'fart' && !this.isGrounded))
+    );
+  }
+
+  syncRuntimeModelVisibility(visible = true) {
+    const showPresentation = visible && this.presentationMode === 'idle' && this.activeBonus !== 'box';
+    const showJump = visible && this.shouldUseJumpModel();
+    const showMain = visible && this.presentationMode !== 'idle' && !showJump && this.activeBonus !== 'box';
+
+    this.modelGroup.visible = false;
+    if (this.presentationFBX) this.presentationFBX.visible = showPresentation;
+    if (this.jumpFBX) this.jumpFBX.visible = showJump;
+    if (this.fbxModel) this.fbxModel.visible = showMain;
+  }
+
+  setPresentationMode(mode) {
+    this.presentationMode = mode;
+
+    if (this.fbxActions && this.fbxActions[mode]) {
+      if (this.currentAction && this.currentAction !== this.fbxActions[mode]) {
+        this.currentAction.fadeOut(0.15);
+      }
+      this.currentAction = this.fbxActions[mode];
+      this.currentAction.paused = false;
+      this.currentAction.reset().fadeIn(0.15).play();
+    } else if (this.currentAction) {
+      if (mode === 'idle') {
+        const clip = this.currentAction.getClip();
+        this.currentAction.paused = false;
+        this.currentAction.time = clip ? clip.duration * 0.45 : 0;
+        if (this.mixer) this.mixer.update(0);
+        this.currentAction.paused = true;
+      } else {
+        this.currentAction.paused = false;
+      }
+    }
+
+    this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+
+    if (!this.fbxModel) {
+      const relaxed = mode === 'idle';
+      this.modelGroup.rotation.set(0, 0, 0);
+      this.bodyParts.leftLeg.rotation.x = relaxed ? 0.08 : 0;
+      this.bodyParts.rightLeg.rotation.x = relaxed ? -0.08 : 0;
+      this.bodyParts.leftArm.rotation.x = relaxed ? -0.12 : 0;
+      this.bodyParts.rightArm.rotation.x = relaxed ? 0.12 : 0;
+    }
+  }
+
+  updatePresentation(dt) {
+    if (this.presentationMixer && this.presentationFBX && this.presentationFBX.visible) {
+      this.presentationMixer.update(dt);
+      return;
+    }
+
+    if (this.mixer) {
+      this.mixer.update(dt);
+    }
+
+    const time = performance.now() * 0.001;
+    const breath = Math.sin(time * 2) * 0.025;
+
+    if (this.fbxModel) {
+      this.fbxModel.position.y = breath;
+      return;
+    }
+
+    this.modelGroup.position.y = breath;
+    this.bodyParts.head.position.y = 1.48 + breath * 0.7;
+  }
+
+  // Загрузка GLB модели
   loadFBXModel() {
-    const loader = new FBXLoader();
-    loader.load('models/vanya.fbx', (fbx) => {
+    const loader = new GLTFLoader();
+    loader.load('models/vanya.glb', (gltf) => {
       try {
-        this.fbxModel = fbx;
+        const model = gltf.scene;
+        this.fbxModel = model;
         
         // Скрываем наши примитивы
         this.modelGroup.visible = false;
         
-        // Настраиваем масштаб (FBX обычно смоделирован в см, уменьшаем до метров)
-        fbx.scale.setScalar(0.0085); 
-        fbx.position.set(0, 0, 0);
-        fbx.rotation.set(0, 0, 0);
+        model.scale.setScalar(0.85); 
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
         
         // Настройка теней
-        fbx.traverse(child => {
+        model.traverse(child => {
           if (child && child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
           }
         });
         
-        this.mesh.add(fbx);
+        this.mesh.add(model);
         
-        // Подключение анимаций FBX
-        if (fbx.animations && fbx.animations.length > 0) {
-          this.mixer = new THREE.AnimationMixer(fbx);
+        // Подключение анимаций GLTF
+        if (gltf.animations && gltf.animations.length > 0) {
+          this.mixer = new THREE.AnimationMixer(model);
           this.fbxActions = {};
           
-          fbx.animations.forEach(clip => {
+          gltf.animations.forEach(clip => {
             if (clip) {
               const name = (clip.name || '').toLowerCase();
               let key = 'run';
@@ -597,20 +718,114 @@ export class Player {
             }
           });
           
-          this.currentAction = this.fbxActions['run'] || this.mixer.clipAction(fbx.animations[0]);
+          this.currentAction = this.fbxActions['run'] || this.mixer.clipAction(gltf.animations[0]);
           if (this.currentAction) {
             this.currentAction.play();
           }
         }
-        console.log('Vanya FBX Model loaded successfully!');
+        this.setCharacterVisible(this.activeBonus !== 'box');
+        this.setPresentationMode(this.presentationMode);
+        console.log('Vanya GLB Model loaded successfully!');
       } catch (e) {
-        console.error('Error parsing Vanya FBX Model:', e);
+        console.error('Error parsing Vanya GLB Model:', e);
         this.fbxModel = null;
-        this.modelGroup.visible = true; // Восстанавливаем примитивы
+        this.modelGroup.visible = false;
       }
     }, undefined, (err) => {
-      console.warn('Vanya FBX Model file models/vanya.fbx not found. Playing with fallback rounded primitives.');
+      console.warn('Vanya GLB Model file models/vanya.glb not found.');
     });
+  }
+
+  loadPresentationModel() {
+    const loader = new GLTFLoader();
+    loader.load('models/vanyaidet.glb', (gltf) => {
+      try {
+        const model = gltf.scene;
+        this.presentationFBX = model;
+        model.scale.setScalar(0.85);
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.visible = false;
+
+        model.traverse(child => {
+          if (child && child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        this.mesh.add(model);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          this.presentationMixer = new THREE.AnimationMixer(model);
+          const action = this.presentationMixer.clipAction(gltf.animations[0]);
+          action.play();
+        }
+
+        this.setCharacterVisible(this.activeBonus !== 'box');
+        this.setPresentationMode(this.presentationMode);
+        console.log('Vanya presentation GLB loaded successfully!');
+      } catch (e) {
+        console.error('Error parsing Vanya presentation GLB:', e);
+        this.presentationFBX = null;
+      }
+    }, undefined, () => {
+      console.warn('Vanya presentation model models/vanyaidet.glb not found.');
+    });
+  }
+
+  loadJumpModel() {
+    const loader = new GLTFLoader();
+    const candidates = [
+      'models/vanyajump.glb',
+      'models/vanyaprygaet.glb',
+      'models/vanya_jump.glb',
+      'models/jump.glb',
+      'models/pryzhok.glb'
+    ];
+
+    const tryLoad = (index) => {
+      if (index >= candidates.length) {
+        console.warn(`Vanya jump model not found.`);
+        return;
+      }
+
+      const url = candidates[index];
+      loader.load(url, (gltf) => {
+        try {
+          const model = gltf.scene;
+          this.jumpFBX = model;
+          model.scale.setScalar(0.85);
+          model.position.set(0, 0, 0);
+          model.rotation.set(0, 0, 0);
+          model.visible = false;
+
+          model.traverse(child => {
+            if (child && child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+
+          this.mesh.add(model);
+
+          if (gltf.animations && gltf.animations.length > 0) {
+            this.jumpMixer = new THREE.AnimationMixer(model);
+            const action = this.jumpMixer.clipAction(gltf.animations[0]);
+            action.play();
+          }
+
+          this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+          console.log(`Vanya jump GLB loaded successfully: ${url}`);
+        } catch (e) {
+          console.error('Error parsing Vanya jump GLB:', e);
+          this.jumpFBX = null;
+          this.jumpMixer = null;
+        }
+      }, undefined, () => tryLoad(index + 1));
+    };
+
+    tryLoad(0);
   }
 
   // Обновление состояния анимаций FBX
@@ -634,13 +849,41 @@ export class Player {
 
   // Получение Bounding Box для коллизий
   getCollider() {
+    const minZ = Math.min(this.previousZ, this.mesh.position.z);
+    const maxZ = Math.max(this.previousZ, this.mesh.position.z);
+    const sweptDepth = Math.max(this.depth, maxZ - minZ + this.depth);
+    const centerZ = (minZ + maxZ) / 2;
+
     return new THREE.Box3().setFromCenterAndSize(
       new THREE.Vector3(
         this.mesh.position.x,
         this.mesh.position.y + this.height / 2,
-        this.mesh.position.z
+        centerZ
       ),
-      new THREE.Vector3(this.width, this.height, this.depth)
+      new THREE.Vector3(this.width, this.height, sweptDepth)
     );
+  }
+
+  setCharacterMeshOpacity(opacity) {
+    const applyOpacity = (obj) => {
+      obj.traverse(child => {
+        if (child.isMesh && child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          materials.forEach(mat => {
+            if (!mat.userData.hasOwnProperty('originalOpacity')) {
+              mat.userData.originalOpacity = mat.opacity !== undefined ? mat.opacity : 1.0;
+              mat.userData.originalTransparent = mat.transparent !== undefined ? mat.transparent : false;
+            }
+            mat.transparent = opacity < 1.0 ? true : mat.userData.originalTransparent;
+            mat.opacity = opacity < 1.0 ? opacity : mat.userData.originalOpacity;
+          });
+        }
+      });
+    };
+
+    if (this.fbxModel) applyOpacity(this.fbxModel);
+    if (this.jumpFBX) applyOpacity(this.jumpFBX);
+    if (this.presentationFBX) applyOpacity(this.presentationFBX);
+    if (this.modelGroup) applyOpacity(this.modelGroup);
   }
 }

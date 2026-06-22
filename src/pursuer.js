@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { audioManager } from './audio.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Pursuer {
   constructor(scene) {
@@ -16,15 +16,23 @@ export class Pursuer {
 
     // Таймер озвучки Лизы (каждые 8-15 секунд)
     this.voiceTimer = this.getRandomVoiceInterval();
+    this.presentationMode = 'run';
+    this.kickFallbackTime = 0;
+    this.kickEffectGroup = null;
+    this.kickEffectParts = {};
 
     this.buildCharacter();
     this.reset();
 
-    // Подключение FBX Лизы
+    // Подключение GLB Лизы
     this.fbxModel = null;
+    this.kickFBX = null;
+    this.kickAnimations = null;
+    this.kickMixer = null;
     this.mixer = null;
     this.fbxActions = {};
     this.loadFBXModel();
+    setTimeout(() => this.loadKickModel(), 1000);
   }
 
   // Создание low-poly 3D-модели Лизы из примитивов
@@ -108,21 +116,58 @@ export class Pursuer {
     rightArm.castShadow = true;
     this.modelGroup.add(rightArm);
     this.bodyParts.rightArm = rightArm;
+
+    this.createKickEffect(pantsMat, shoeMat);
+  }
+
+  createKickEffect(pantsMat, shoeMat) {
+    const group = new THREE.Group();
+    group.visible = false;
+    group.position.set(0.18, 0.58, 0.2);
+
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.74), pantsMat);
+    leg.position.set(0, 0, 0.28);
+    leg.castShadow = true;
+
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.13, 0.3), shoeMat);
+    shoe.position.set(0, -0.01, 0.78);
+    shoe.castShadow = true;
+
+    const arc = new THREE.Mesh(
+      new THREE.TorusGeometry(0.36, 0.018, 8, 24, Math.PI * 1.35),
+      new THREE.MeshBasicMaterial({
+        color: 0xff4fa3,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false
+      })
+    );
+    arc.position.set(0, 0.06, 0.76);
+    arc.rotation.set(Math.PI / 2, 0.2, -0.55);
+
+    group.add(leg, shoe, arc);
+    this.mesh.add(group);
+
+    this.kickEffectGroup = group;
+    this.kickEffectParts = { leg, shoe, arc };
   }
 
   reset() {
-    this.mesh.position.set(0, 0, -CONFIG.LIZA_DISTANCE);
-    this.relativeZ = -CONFIG.LIZA_DISTANCE;
-    this.targetRelativeZ = -CONFIG.LIZA_DISTANCE;
+    this.mesh.position.set(0, 0, -CONFIG.LIZA_SAFE_DISTANCE);
+    this.relativeZ = -CONFIG.LIZA_SAFE_DISTANCE;
+    this.targetRelativeZ = -CONFIG.LIZA_SAFE_DISTANCE;
     this.voiceTimer = this.getRandomVoiceInterval();
+    this.kickFallbackTime = 0;
 
-    this.modelGroup.visible = !this.fbxModel;
+    this.presentationMode = 'run';
+    this.syncModelVisibility(true);
     if (this.fbxModel) {
-      this.fbxModel.visible = true;
       this.fbxModel.position.set(0, 0, 0);
       this.fbxModel.rotation.set(0, 0, 0);
     }
-
+    if (this.kickEffectGroup) {
+      this.kickEffectGroup.visible = false;
+    }
     if (this.mixer) {
       this.mixer.stopAllAction();
       if (this.fbxActions && this.fbxActions['run']) {
@@ -162,11 +207,16 @@ export class Pursuer {
     this.mesh.position.y = 0;
 
     // 3. Анимация бега
-    if (this.mixer) {
+    this.syncModelVisibility(true);
+    this.updateKickFallback(dt);
+
+    if (this.presentationMode === 'kick' && this.kickMixer) {
+      this.kickMixer.update(dt);
+    } else if (this.mixer) {
       this.mixer.update(dt);
       
       // Если догнала игрока (Game Over) - переключаем на idle
-      if (this.targetRelativeZ === 0 && this.fbxActions && this.fbxActions['idle']) {
+      if (this.targetRelativeZ === 0 && this.fbxActions && this.fbxActions['idle'] && !this.fbxActions['kick']) {
         const action = this.fbxActions['idle'];
         if (action !== this.currentAction) {
           this.currentAction.fadeOut(0.2);
@@ -201,7 +251,9 @@ export class Pursuer {
     // 4. Периодическое воспроизведение фраз погони (каждые 8-15 сек)
     this.voiceTimer -= dt * 1000;
     if (this.voiceTimer <= 0) {
-      audioManager.playLizaVoice();
+      if (!window.__game || window.__game.state !== 'GAMEOVER') {
+        audioManager.playLizaVoice();
+      }
       this.voiceTimer = this.getRandomVoiceInterval();
     }
   }
@@ -209,39 +261,185 @@ export class Pursuer {
   // Приближение Лизы к игроку при столкновении/спотыкании
   catchUp() {
     this.targetRelativeZ = 0; // Лиза ловит Ваню вплотную
+    this.setPresentationMode('kick');
   }
 
-  // Загрузка FBX модели Лизы
+  setChaseDistance(distance) {
+    const clamped = THREE.MathUtils.clamp(distance, CONFIG.LIZA_CATCH_DISTANCE, CONFIG.LIZA_SAFE_DISTANCE);
+    this.targetRelativeZ = -clamped;
+  }
+
+  recoverDistance(dt) {
+    const currentDistance = Math.abs(this.targetRelativeZ);
+    const nextDistance = Math.min(CONFIG.LIZA_SAFE_DISTANCE, currentDistance + CONFIG.LIZA_RECOVERY_RATE * dt);
+    this.targetRelativeZ = -nextDistance;
+  }
+
+  getDangerPercent() {
+    const distance = Math.abs(this.relativeZ);
+    const range = CONFIG.LIZA_SAFE_DISTANCE - CONFIG.LIZA_CATCH_DISTANCE;
+    return THREE.MathUtils.clamp(((CONFIG.LIZA_SAFE_DISTANCE - distance) / range) * 100, 0, 100);
+  }
+
+  setPresentationMode(mode) {
+    this.presentationMode = mode;
+    if (mode === 'kick') {
+      this.kickFallbackTime = 0;
+    }
+
+    if (mode === 'kick' && this.kickMixer && this.kickAnimations && this.kickAnimations.length > 0) {
+      const action = this.kickMixer.clipAction(this.kickAnimations[0]);
+      action.reset().fadeIn(0.04).play();
+    }
+
+    if (this.fbxActions && this.fbxActions[mode]) {
+      if (this.currentAction && this.currentAction !== this.fbxActions[mode]) {
+        this.currentAction.fadeOut(0.15);
+      }
+      this.currentAction = this.fbxActions[mode];
+      this.currentAction.paused = false;
+      this.currentAction.reset().fadeIn(mode === 'kick' ? 0.04 : 0.15).play();
+    } else if (this.currentAction) {
+      if (mode === 'idle') {
+        const clip = this.currentAction.getClip();
+        this.currentAction.paused = false;
+        this.currentAction.time = clip ? clip.duration * 0.45 : 0;
+        if (this.mixer) this.mixer.update(0);
+        this.currentAction.paused = true;
+      } else {
+        this.currentAction.paused = false;
+      }
+    }
+
+    this.syncModelVisibility(true);
+
+    if (!this.fbxModel) {
+      this.modelGroup.rotation.set(0, 0, 0);
+      this.bodyParts.leftLeg.rotation.x = mode === 'idle' ? 0.06 : 0;
+      this.bodyParts.rightLeg.rotation.x = mode === 'idle' ? -0.06 : 0;
+      this.bodyParts.leftArm.rotation.x = mode === 'idle' ? -0.1 : 0;
+      this.bodyParts.rightArm.rotation.x = mode === 'idle' ? 0.1 : 0;
+    }
+  }
+
+  updatePresentation(dt) {
+    this.syncModelVisibility(true);
+    this.updateKickFallback(dt);
+
+    if (this.presentationMode === 'kick' && this.kickMixer) {
+      this.kickMixer.update(dt);
+    } else if (this.mixer) {
+      this.mixer.update(dt);
+    }
+
+    const time = performance.now() * 0.001;
+    const breath = Math.sin(time * 2.1) * 0.02;
+
+    if (this.fbxModel) {
+      this.fbxModel.position.y = breath;
+      return;
+    }
+
+    this.modelGroup.position.y = breath;
+    this.bodyParts.head.position.y = 1.38 + breath * 0.7;
+  }
+
+  syncModelVisibility(visible = true) {
+    this.modelGroup.visible = false;
+    
+    const showKick = visible && this.presentationMode === 'kick';
+    const showNormal = visible && !showKick;
+    
+    if (this.fbxModel) this.fbxModel.visible = showNormal;
+    if (this.kickFBX) this.kickFBX.visible = showKick;
+  }
+
+  updateKickFallback(dt) {
+    // If the game is in the MENU state, never show the fallback kick leg
+    if (window.__game && window.__game.state === 'MENU') {
+      if (this.kickEffectGroup) this.kickEffectGroup.visible = false;
+      return;
+    }
+
+    if (this.kickFBX) {
+      if (this.kickEffectGroup) this.kickEffectGroup.visible = false;
+      return;
+    }
+
+    if (this.fbxActions['kick']) {
+      if (this.kickEffectGroup) this.kickEffectGroup.visible = false;
+      return;
+    }
+
+    if (this.presentationMode !== 'kick') {
+      if (this.fbxModel) {
+        this.fbxModel.rotation.x = 0;
+        this.fbxModel.rotation.z = 0;
+        this.fbxModel.position.z = 0;
+      }
+      if (this.kickEffectGroup) {
+        this.kickEffectGroup.visible = false;
+      }
+      return;
+    }
+
+    this.kickFallbackTime += dt;
+    const phase = (this.kickFallbackTime * 3.8) % 1;
+    const windUp = THREE.MathUtils.smoothstep(phase, 0.05, 0.28);
+    const returnBack = 1 - THREE.MathUtils.smoothstep(phase, 0.55, 0.95);
+    const snap = Math.max(0, windUp * returnBack);
+
+    if (this.fbxModel) {
+      this.fbxModel.rotation.x = -0.1 * snap;
+      this.fbxModel.rotation.z = 0.08 * snap;
+      this.fbxModel.position.z = 0.14 * snap;
+    }
+
+    if (this.kickEffectGroup) {
+      this.kickEffectGroup.visible = true;
+      this.kickEffectGroup.position.set(
+        0.18,
+        0.56 + 0.06 * snap,
+        0.16 + 0.34 * snap
+      );
+      this.kickEffectGroup.rotation.x = -0.55 * snap;
+      this.kickEffectGroup.rotation.y = -0.16 + 0.24 * snap;
+      this.kickEffectGroup.scale.setScalar(0.92 + 0.18 * snap);
+    }
+  }
+
+  // Загрузка GLB модели Лизы
   loadFBXModel() {
-    const loader = new FBXLoader();
-    loader.load('models/liza.fbx', (fbx) => {
+    const loader = new GLTFLoader();
+    loader.load('models/liza.glb', (gltf) => {
       try {
-        this.fbxModel = fbx;
+        const model = gltf.scene;
+        this.fbxModel = model;
         
-        // Скрываем примитивы
+        // Скрываем примитивы: в кадре должна быть только загруженная FBX-модель.
         this.modelGroup.visible = false;
         
         // Масштабирование
-        fbx.scale.setScalar(0.008); 
-        fbx.position.set(0, 0, 0);
-        fbx.rotation.set(0, 0, 0);
+        model.scale.setScalar(0.8); 
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
         
         // Тени
-        fbx.traverse(child => {
+        model.traverse(child => {
           if (child && child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
           }
         });
         
-        this.mesh.add(fbx);
+        this.mesh.add(model);
         
-        // Подключение анимаций FBX
-        if (fbx.animations && fbx.animations.length > 0) {
-          this.mixer = new THREE.AnimationMixer(fbx);
+        // Подключение анимаций GLTF
+        if (gltf.animations && gltf.animations.length > 0) {
+          this.mixer = new THREE.AnimationMixer(model);
           this.fbxActions = {};
           
-          fbx.animations.forEach(clip => {
+          gltf.animations.forEach(clip => {
             if (clip) {
               const name = (clip.name || '').toLowerCase();
               let key = 'run';
@@ -252,19 +450,60 @@ export class Pursuer {
             }
           });
           
-          this.currentAction = this.fbxActions['run'] || this.mixer.clipAction(fbx.animations[0]);
+          this.currentAction = this.fbxActions['run'] || this.mixer.clipAction(gltf.animations[0]);
           if (this.currentAction) {
             this.currentAction.play();
           }
         }
-        console.log('Liza FBX Model loaded successfully!');
+        this.setPresentationMode(this.presentationMode);
+        console.log('Liza GLB Model loaded successfully!');
       } catch (e) {
-        console.error('Error parsing Liza FBX Model:', e);
+        console.error('Error parsing Liza GLB Model:', e);
         this.fbxModel = null;
-        this.modelGroup.visible = true; // Восстанавливаем примитивы
+        this.modelGroup.visible = false;
       }
     }, undefined, (err) => {
-      console.warn('Liza FBX Model file models/liza.fbx not found. Playing with fallback rounded primitives.');
+      console.warn('Liza GLB Model file models/liza.glb not found.');
+    });
+  }
+
+  loadKickModel() {
+    const loader = new GLTFLoader();
+    loader.load('models/lizanoga.glb', (gltf) => {
+      try {
+        const model = gltf.scene;
+        this.kickFBX = model;
+        model.visible = false;
+
+        // Масштабирование
+        model.scale.setScalar(0.8); 
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+
+        model.traverse(child => {
+          if (child && child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        this.mesh.add(model);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          this.kickAnimations = gltf.animations;
+          this.kickMixer = new THREE.AnimationMixer(model);
+          const action = this.kickMixer.clipAction(gltf.animations[0]);
+          action.play();
+        }
+
+        this.syncModelVisibility(true);
+        console.log('Liza kick GLB loaded successfully!');
+      } catch (e) {
+        console.error('Error parsing Liza kick GLB:', e);
+        this.kickFBX = null;
+      }
+    }, undefined, () => {
+      console.warn('Liza kick model models/lizanoga.glb not found.');
     });
   }
 }

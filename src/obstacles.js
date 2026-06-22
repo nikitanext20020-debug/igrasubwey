@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { audioManager } from './audio.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 export class ObstacleManager {
   constructor(scene) {
@@ -15,6 +16,10 @@ export class ObstacleManager {
       bag: new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.9 }),
       wheel: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
       metal: new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 }),
+      asphalt: new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.9 }),
+      plastic: new THREE.MeshStandardMaterial({ color: 0xff6b00, roughness: 0.55 }),
+      warning: new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.55 }),
+      wood: new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.85 }),
       rope: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.9 }),
       cloth: [
         new THREE.MeshStandardMaterial({ color: 0xff4444, roughness: 0.8 }),
@@ -37,25 +42,81 @@ export class ObstacleManager {
 
     // Подключение FBX Бабушки
     this.babushkaFBX = null;
+    this.babushkaFallFBX = null;
     this.babushkaAnimations = null;
-    this.loadFBXModel();
+    this.babushkaFallAnimations = null;
+    setTimeout(() => this.loadFBXModel(), 2000);
   }
 
-  // Загрузка FBX модели бабушки
+  // Загрузка GLB модели бабушки
   loadFBXModel() {
-    const loader = new FBXLoader();
-    loader.load('models/babushka.fbx', (fbx) => {
+    const loader = new GLTFLoader();
+    loader.load('models/babkastoit.glb', (gltf) => {
       try {
-        this.babushkaFBX = fbx;
-        this.babushkaAnimations = fbx.animations;
-        console.log('Babushka FBX Model loaded successfully!');
+        this.babushkaFBX = gltf.scene;
+        this.babushkaFBX.traverse(child => {
+          if (child.isSkinnedMesh) {
+            if (child.geometry) {
+              // Sanitize skinWeight to fix NaN coordinates issue in Mixamo models
+              if (child.geometry.attributes.skinWeight) {
+                const arr = child.geometry.attributes.skinWeight.array;
+                for (let i = 0; i < arr.length; i++) {
+                  if (isNaN(arr[i])) {
+                    arr[i] = 0;
+                  }
+                }
+                child.geometry.attributes.skinWeight.needsUpdate = true;
+              }
+              child.geometry.boundingBox = null;
+              child.geometry.boundingSphere = null;
+            }
+            child.boundingBox = null;
+            child.boundingSphere = null;
+          }
+        });
+        this.babushkaAnimations = gltf.animations;
+        console.log(`Babushka standing GLB Model loaded successfully! animations=${gltf.animations.length}`);
       } catch (e) {
-        console.error('Error parsing Babushka FBX Model:', e);
+        console.error('Error parsing Babushka standing GLB Model:', e);
         this.babushkaFBX = null;
         this.babushkaAnimations = null;
       }
     }, undefined, (err) => {
-      console.warn('Babushka FBX Model file models/babushka.fbx not found. Playing with fallback rounded primitives.');
+      console.warn('Babushka standing GLB Model file models/babkastoit.glb not found.');
+    });
+
+    loader.load('models/babkapadait.glb', (gltf) => {
+      try {
+        this.babushkaFallFBX = gltf.scene;
+        this.babushkaFallFBX.traverse(child => {
+          if (child.isSkinnedMesh) {
+            if (child.geometry) {
+              // Sanitize skinWeight to fix NaN coordinates issue in Mixamo models
+              if (child.geometry.attributes.skinWeight) {
+                const arr = child.geometry.attributes.skinWeight.array;
+                for (let i = 0; i < arr.length; i++) {
+                  if (isNaN(arr[i])) {
+                    arr[i] = 0;
+                  }
+                }
+                child.geometry.attributes.skinWeight.needsUpdate = true;
+              }
+              child.geometry.boundingBox = null;
+              child.geometry.boundingSphere = null;
+            }
+            child.boundingBox = null;
+            child.boundingSphere = null;
+          }
+        });
+        this.babushkaFallAnimations = gltf.animations;
+        console.log(`Babushka fall GLB Model loaded successfully! animations=${gltf.animations.length}`);
+      } catch (e) {
+        console.error('Error parsing Babushka fall GLB Model:', e);
+        this.babushkaFallFBX = null;
+        this.babushkaFallAnimations = null;
+      }
+    }, undefined, (err) => {
+      console.warn('Babushka fall GLB Model file models/babkapadait.glb not found.');
     });
   }
 
@@ -68,41 +129,197 @@ export class ObstacleManager {
     this.obstacles = [];
   }
 
-  // Спавн препятствий на новом чанке (увеличено количество преград)
+  // Спавн препятствий на новом чанке: микс "живых" и городских преград.
   spawnObstaclesForChunk(chunkStartZ, chunkLength) {
-    const numGroups = 4 + Math.floor(Math.random() * 2); // 4 или 5 групп на чанк (более плотно!)
+    const beforeCount = this.obstacles.length;
+    const numGroups = 4 + Math.floor(Math.random() * 2);
     const step = chunkLength / numGroups;
+
+    if (this.babushkaFBX) {
+      const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
+      this.spawnSingleBabushka(lanes[0], chunkStartZ + 18, false);
+      this.spawnSingleBabushka(lanes[1], chunkStartZ + 46, false);
+    }
 
     for (let i = 0; i < numGroups; i++) {
       const zPos = chunkStartZ + i * step + 15 + Math.random() * 10;
       
-      // Выбираем тип группы: 
-      // 0: 1 полоса (обычная бабушка)
-      // 1: 2 полосы (две бабушки рядом)
-      // 2: 3 полосы (барьер: прыжок или подкат)
-      const groupType = Math.floor(Math.random() * 3);
+      const groupType = Math.floor(Math.random() * 4);
 
-      if (groupType === 0) {
+      if (groupType === 0 || (this.babushkaFBX && Math.random() < 0.28)) {
         // Одиночная бабушка
         const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
-        const isMoving = Math.random() > 0.6; // движется ли навстречу
+        const isMoving = false;
         this.spawnSingleBabushka(lane, zPos, isMoving);
       } 
       else if (groupType === 1) {
-        // Две полосы заняты
+        // Две полосы заняты разными городскими штуками
         const freeLane = Math.floor(Math.random() * 3) - 1; // Свободная полоса
         for (let lane = -1; lane <= 1; lane++) {
           if (lane !== freeLane) {
-            this.spawnSingleBabushka(lane, zPos, false); // Статичные, чтобы не перегружать игрока
+            this.spawnLaneObstacle(lane, zPos + Math.random() * 2, Math.random() > 0.5 ? 'cone_pack' : 'trash');
           }
         }
       } 
+      else if (groupType === 2) {
+        const lane = Math.floor(Math.random() * 3) - 1;
+        this.spawnLaneObstacle(lane, zPos, Math.random() > 0.5 ? 'roadblock' : 'bench');
+      }
+      else if (groupType === 3) {
+        const freeLane = Math.floor(Math.random() * 3) - 1;
+        for (let lane = -1; lane <= 1; lane++) {
+          if (lane !== freeLane) {
+            const type = lane === 0 ? 'roadblock' : 'cone_pack';
+            this.spawnLaneObstacle(lane, zPos + Math.abs(lane) * 1.35, type);
+          }
+        }
+      }
       else {
-        // 3 полосы (барьер)
-        const barrierType = Math.random() > 0.5 ? 'jump' : 'slide';
-        this.spawnThreeLaneBarrier(zPos, barrierType);
+        const lane = Math.floor(Math.random() * 3) - 1;
+        this.spawnLaneObstacle(lane, zPos, Math.random() > 0.5 ? 'trash' : 'cone_pack');
       }
     }
+
+    const spawned = this.obstacles.slice(beforeCount);
+    const babushkaCount = spawned.filter(obs => obs.type === 'babushka').length;
+    console.log(`Spawned obstacles for chunk ${Math.round(chunkStartZ)}: babushka=${babushkaCount}, total=${spawned.length}`);
+  }
+
+  normalizeVisualToHeight(object, targetHeight) {
+    object.traverse(child => {
+      if (child.isSkinnedMesh) {
+        if (child.geometry) {
+          child.geometry.boundingBox = null;
+          child.geometry.boundingSphere = null;
+        }
+        child.boundingBox = null;
+        child.boundingSphere = null;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(object);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    if (size.y > 0.001) {
+      const scaleFix = targetHeight / size.y;
+      object.scale.multiplyScalar(scaleFix);
+    }
+
+    const fixedBox = new THREE.Box3().setFromObject(object);
+    const center = new THREE.Vector3();
+    fixedBox.getCenter(center);
+    // Skinned animation bone matrices handle local origin alignment; do not offset visual group positions
+    // object.position.x -= center.x;
+    // object.position.z -= center.z;
+    // object.position.y -= fixedBox.min.y;
+  }
+
+  spawnLaneObstacle(lane, zPos, type) {
+    const group = new THREE.Group();
+    group.position.set(lane * CONFIG.LANE_WIDTH, 0, zPos);
+    this.scene.add(group);
+
+    let width = 1.15;
+    let height = 1.1;
+    let depth = 0.9;
+    let colliderWidth = null;
+    let colliderHeight = null;
+    let colliderDepth = null;
+
+    if (type === 'roadblock') {
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.55, 0.32), this.materials.warning);
+      base.position.y = 0.32;
+      base.castShadow = true;
+
+      const stripe1 = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.08, 0.34), this.materials.asphalt);
+      stripe1.position.set(0, 0.42, 0.01);
+      stripe1.rotation.z = 0.28;
+
+      const stripe2 = stripe1.clone();
+      stripe2.position.y = 0.2;
+      stripe2.rotation.z = -0.28;
+
+      const legGeo = new THREE.BoxGeometry(0.12, 0.55, 0.16);
+      const legL = new THREE.Mesh(legGeo, this.materials.metal);
+      legL.position.set(-0.45, 0.25, -0.08);
+      const legR = legL.clone();
+      legR.position.x = 0.45;
+
+      group.add(base, stripe1, stripe2, legL, legR);
+      height = 0.85;
+    } else if (type === 'cone_pack') {
+      const coneGeo = new THREE.ConeGeometry(0.25, 0.75, 16);
+      for (let i = 0; i < 3; i++) {
+        const cone = new THREE.Mesh(coneGeo, this.materials.plastic);
+        cone.position.set((i - 1) * 0.32, 0.38, (i % 2) * 0.28);
+        cone.castShadow = true;
+
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.32), this.materials.rope);
+        band.position.copy(cone.position);
+        band.position.y = 0.42;
+        group.add(cone, band);
+      }
+      width = 1.05;
+      height = 0.8;
+    } else if (type === 'bench') {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.16, 0.48), this.materials.wood);
+      seat.position.y = 0.45;
+      seat.castShadow = true;
+
+      const back = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.42, 0.12), this.materials.wood);
+      back.position.set(0, 0.78, -0.22);
+      back.castShadow = true;
+
+      const legGeo = new THREE.BoxGeometry(0.1, 0.45, 0.1);
+      const legA = new THREE.Mesh(legGeo, this.materials.metal);
+      legA.position.set(-0.48, 0.22, -0.12);
+      const legB = legA.clone();
+      legB.position.x = 0.48;
+      const legC = legA.clone();
+      legC.position.z = 0.15;
+      const legD = legB.clone();
+      legD.position.z = 0.15;
+
+      group.rotation.y = Math.random() > 0.5 ? 0.18 : -0.18;
+      group.add(seat, back, legA, legB, legC, legD);
+      width = 1.45;
+      height = 0.95;
+      depth = 0.75;
+    } else {
+      const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.9, 12), this.materials.bag);
+      bin.position.y = 0.45;
+      bin.castShadow = true;
+
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.1, 12), this.materials.metal);
+      lid.position.y = 0.95;
+      lid.castShadow = true;
+
+      const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.35, 8), this.materials.plastic);
+      bottle.position.set(0.28, 0.18, 0.18);
+      bottle.rotation.z = 0.75;
+      group.add(bin, lid, bottle);
+      width = 0.9;
+      height = 1.05;
+      colliderWidth = 1.65;
+      colliderHeight = 1.35;
+      colliderDepth = 2.0;
+    }
+
+    this.obstacles.push({
+      type: 'street',
+      obstacleType: type,
+      lane,
+      mesh: group,
+      width,
+      height,
+      depth,
+      colliderWidth,
+      colliderHeight,
+      colliderDepth,
+      isMoving: false,
+      moveSpeed: 0,
+      voicePlayed: true
+    });
   }
 
   // Создание одиночной бабушки
@@ -112,14 +329,17 @@ export class ObstacleManager {
     this.scene.add(babushka);
 
     let mixer = null;
+    let visual = null;
 
     if (this.babushkaFBX) {
-      const clone = this.babushkaFBX.clone();
+      const clone = SkeletonUtils.clone(this.babushkaFBX);
+      visual = clone;
       
       // Настраиваем масштаб (аналогично игроку и преследователю)
-      clone.scale.setScalar(0.008); 
+      clone.scale.setScalar(0.8); 
       clone.position.set(0, 0, 0);
       clone.rotation.set(0, Math.PI, 0); // Поворачиваем лицом к игроку
+      this.normalizeVisualToHeight(clone, 0.95);
       
       clone.traverse(child => {
         if (child.isMesh) {
@@ -145,68 +365,9 @@ export class ObstacleManager {
         action.play();
       }
     } else {
-      const coatMat = this.materials.coats[Math.floor(Math.random() * this.materials.coats.length)];
-      const scarfMat = this.materials.scarfs[Math.floor(Math.random() * this.materials.scarfs.length)];
-
-      // 1. Пальто (конусообразное тело)
-      const bodyGeo = new THREE.CylinderGeometry(0.25, 0.45, 1.2, 8);
-      const body = new THREE.Mesh(bodyGeo, coatMat);
-      body.position.y = 0.6;
-      body.castShadow = true;
-      babushka.add(body);
-
-      // 2. Голова (Сфера)
-      const headGeo = new THREE.SphereGeometry(0.2, 10, 10);
-      const head = new THREE.Mesh(headGeo, this.materials.skin);
-      head.position.set(0, 1.25, 0);
-      head.castShadow = true;
-      babushka.add(head);
-
-      // 3. Платок (Конус)
-      const scarfGeo = new THREE.ConeGeometry(0.24, 0.45, 10);
-      const scarf = new THREE.Mesh(scarfGeo, scarfMat);
-      scarf.position.set(0, 1.34, -0.03);
-      scarf.rotation.x = 0.15;
-      scarf.castShadow = true;
-      babushka.add(scarf);
-
-      // Узел платка под подбородком
-      const knotGeo = new THREE.SphereGeometry(0.06, 6, 6);
-      const knot = new THREE.Mesh(knotGeo, scarfMat);
-      knot.position.set(0, 1.08, 0.14);
-      babushka.add(knot);
-
-      // 4. Сумка-тележка
-      const cart = new THREE.Group();
-      cart.position.set(0.38, 0, 0.2); // Справа от бабушки
-      
-      // Сумка
-      const bagGeo = new THREE.BoxGeometry(0.28, 0.5, 0.28);
-      const bag = new THREE.Mesh(bagGeo, this.materials.bag);
-      bag.position.y = 0.35;
-      bag.castShadow = true;
-      cart.add(bag);
-
-      // Ручка металлическая
-      const handleGeo = new THREE.BoxGeometry(0.04, 0.45, 0.04);
-      const handle = new THREE.Mesh(handleGeo, this.materials.metal);
-      handle.position.set(-0.1, 0.6, -0.1);
-      handle.rotation.z = -0.2;
-      cart.add(handle);
-
-      // Колеса (Сглаженные цилиндры)
-      const wheelGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.08, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      
-      const w1 = new THREE.Mesh(wheelGeo, this.materials.wheel);
-      w1.position.set(-0.12, 0.08, 0);
-      w1.castShadow = true;
-      
-      const w2 = w1.clone();
-      w2.position.x = 0.12;
-
-      cart.add(w1, w2);
-      babushka.add(cart);
+      this.scene.remove(babushka);
+      this.spawnLaneObstacle(lane, zPos, isMoving ? 'roadblock' : 'trash');
+      return;
     }
 
     // Логика препятствия
@@ -214,14 +375,50 @@ export class ObstacleManager {
       type: 'babushka',
       lane,
       mesh: babushka,
-      width: 1.1,
-      height: 1.4,
-      depth: 0.8,
+      visual,
+      width: 1.05,
+      height: 0.98,
+      depth: 1.05,
+      colliderWidth: 1.18,
+      colliderHeight: 1.15,
+      colliderDepth: 1.35,
       isMoving,
-      moveSpeed: isMoving ? 5 : 0, // едет навстречу
+      moveSpeed: 0,
       voicePlayed: false,
       mixer
     });
+  }
+
+  playHitEffect(obs) {
+    if (!obs || obs.type !== 'babushka' || !this.babushkaFallFBX) return;
+
+    if (obs.visual) {
+      obs.mesh.remove(obs.visual);
+      this.disposeMesh(obs.visual);
+    }
+
+    const fall = SkeletonUtils.clone(this.babushkaFallFBX);
+    fall.scale.setScalar(0.8);
+    fall.position.set(0, 0, 0);
+    fall.rotation.set(0, Math.PI, 0);
+    this.normalizeVisualToHeight(fall, 0.85);
+    fall.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    obs.mesh.add(fall);
+    obs.visual = fall;
+
+    if (this.babushkaFallAnimations && this.babushkaFallAnimations.length > 0) {
+      obs.mixer = new THREE.AnimationMixer(fall);
+      const action = obs.mixer.clipAction(this.babushkaFallAnimations[0]);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      action.play();
+    }
   }
 
   // Создание барьера на все 3 полосы (прыжок или подкат)
@@ -230,34 +427,28 @@ export class ObstacleManager {
     barrierGroup.position.set(0, 0, zPos);
     this.scene.add(barrierGroup);
 
-    let height = 1.0;
+    let height = 0.85;
     let width = CONFIG.LANE_WIDTH * 3;
-    let depth = 0.6;
-    let yPos = 0.5;
+    let depth = 0.45;
+    let yPos = 0.42;
 
     if (type === 'jump') {
       // --- НИЗКИЙ БАРЬЕР ДЛЯ ПРЫЖКА ---
-      const fenceGeo = new THREE.BoxGeometry(width, 0.8, 0.1);
-      const fence = new THREE.Mesh(fenceGeo, this.materials.metal);
-      fence.position.y = 0.4;
+      const fenceGeo = new THREE.BoxGeometry(width, 0.28, 0.16);
+      const fence = new THREE.Mesh(fenceGeo, this.materials.warning);
+      fence.position.y = 0.22;
       fence.castShadow = true;
       fence.receiveShadow = true;
       barrierGroup.add(fence);
 
-      // Добавим сглаженную бабушку по центру, которая грозит кулаком
-      const bGeo = new THREE.CylinderGeometry(0.15, 0.22, 0.6, 8);
-      const b = new THREE.Mesh(bGeo, this.materials.coats[0]);
-      b.position.set(0, 0.7, 0);
-      
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), this.materials.skin);
-      head.position.set(0, 1.05, 0);
-      
-      const scarf = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.3, 8), this.materials.scarfs[1]);
-      scarf.position.set(0, 1.12, 0);
+      const stripeGeo = new THREE.BoxGeometry(width, 0.05, 0.18);
+      const stripeA = new THREE.Mesh(stripeGeo, this.materials.asphalt);
+      stripeA.position.y = 0.29;
+      const stripeB = stripeA.clone();
+      stripeB.position.y = 0.16;
+      barrierGroup.add(stripeA, stripeB);
 
-      barrierGroup.add(b, head, scarf);
-      
-      height = 1.25; // Высота препятствия для прыжка
+      height = 0.58; // Низкое препятствие для прыжка
       yPos = height / 2;
     } 
     else {
@@ -275,8 +466,8 @@ export class ObstacleManager {
 
       // Веревка
       const ropeGeo = new THREE.BoxGeometry(width, 0.04, 0.04);
-      const rope = new THREE.Mesh(ropeGeo, this.materials.rope);
-      rope.position.y = 1.9;
+      const rope = new THREE.Mesh(ropeGeo, this.materials.warning);
+      rope.position.y = 1.62;
       barrierGroup.add(rope);
 
       // Висящее белье (ковры / простыни)
@@ -285,16 +476,16 @@ export class ObstacleManager {
       
       for (let i = 0; i < numClothes; i++) {
         const xOffset = -width / 2 + (i + 1) * cWidth;
-        const clothGeo = new THREE.BoxGeometry(0.9, 0.9, 0.05);
+        const clothGeo = new THREE.BoxGeometry(0.72, 0.52, 0.05);
         const clothMat = this.materials.cloth[i % this.materials.cloth.length];
         const cloth = new THREE.Mesh(clothGeo, clothMat);
-        cloth.position.set(xOffset, 1.4, 0);
+        cloth.position.set(xOffset, 1.28, 0);
         cloth.castShadow = true;
         barrierGroup.add(cloth);
       }
 
-      height = 2.2;
-      yPos = 1.6; // Центр коллизии находится вверху, так как снизу свободное пространство!
+      height = 1.85;
+      yPos = 1.35; // Центр коллизии находится вверху, так как снизу свободное пространство!
       // Для подката: коллизия перекрывает только верхнюю часть. 
       // Если игрок пригнулся (высота игрока = 0.9, y = 0), он не касается верхней рамки.
     }
@@ -330,7 +521,7 @@ export class ObstacleManager {
 
       // 2. Логика озвучки бабушек:
       // Если бабушка близко перед игроком (по Z в пределах 25 метров) и голос еще не играл
-      if (obs.type === 'babushka' && !obs.voicePlayed && obs.mesh.position.z - playerZ < 25 && obs.mesh.position.z > playerZ) {
+      if (obs.type === 'babushka' && !obs.voicePlayed && obs.mesh.position.z - playerZ < 12 && obs.mesh.position.z > playerZ) {
         audioManager.playBabushkaVoice();
         obs.voicePlayed = true; // Пытаемся воспроизвести один раз для каждой бабушки
       }
@@ -349,8 +540,11 @@ export class ObstacleManager {
     if (player.isInvulnerable()) return null; // Игрок неуязвим (в коробке или высоко на пуке)
 
     const playerCollider = player.getCollider();
+    const colliderPadding = new THREE.Vector3(0.28, 0.08, 1.25);
 
     for (let obs of this.obstacles) {
+      if (obs.wasHit) continue;
+
       // Вычисляем collider для препятствия
       let obsCollider;
       if (obs.type === 'barrier') {
@@ -360,21 +554,26 @@ export class ObstacleManager {
           // Если игрок делает подкат, его collider находится ниже Y = 0.9, и он проскальзывает.
           obsCollider = new THREE.Box3().setFromCenterAndSize(
             new THREE.Vector3(obs.mesh.position.x, obs.yPos, obs.mesh.position.z),
-            new THREE.Vector3(obs.width, 1.2, obs.depth) // Высота коллизии 1.2, висит сверху
+            new THREE.Vector3(obs.width + colliderPadding.x, 1.2, obs.depth + colliderPadding.z)
           );
         } else {
           // Низкий барьер для прыжка. Перекрывает низ от Y = 0 до Y = 1.25.
           // Если игрок прыгает, его collider взлетает выше Y = 1.25, и он перепрыгивает.
           obsCollider = new THREE.Box3().setFromCenterAndSize(
             new THREE.Vector3(obs.mesh.position.x, obs.yPos, obs.mesh.position.z),
-            new THREE.Vector3(obs.width, obs.height, obs.depth)
+            new THREE.Vector3(obs.width + colliderPadding.x, obs.height + colliderPadding.y, obs.depth + colliderPadding.z)
           );
         }
       } else {
-        // Обычная бабушка
+        // Одиночные препятствия и городские объекты: чуть расширяем collider,
+        // чтобы быстрый бег не выглядел как пробегание сквозь край модели.
         obsCollider = new THREE.Box3().setFromCenterAndSize(
           new THREE.Vector3(obs.mesh.position.x, obs.height / 2, obs.mesh.position.z),
-          new THREE.Vector3(obs.width, obs.height, obs.depth)
+          new THREE.Vector3(
+            (obs.colliderWidth || obs.width) + colliderPadding.x,
+            (obs.colliderHeight || obs.height) + colliderPadding.y,
+            (obs.colliderDepth || obs.depth) + colliderPadding.z
+          )
         );
       }
 

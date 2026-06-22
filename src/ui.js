@@ -10,13 +10,15 @@ class UIManager {
     // Заряды бонусов, доступные для забега
     this.inventory = {
       box: parseInt(localStorage.getItem('inv_box')) || 0,
-      fart: localStorage.getItem('inv_fart') === 'true' // Многоразовый разблокируемый апгрейд
+      fart: 0 // Розовый джин покупается заново на каждый забег, максимум 3 штуки
     };
+    localStorage.removeItem('inv_fart');
 
     this.onStartGameCallback = null;
     this.onResumeGameCallback = null;
     this.onQuitGameCallback = null;
     this.activeScreen = 'main-menu';
+    this.lastHUDBottles = 0;
   }
 
   init(callbacks) {
@@ -135,13 +137,14 @@ class UIManager {
     btnBox.disabled = this.bottles < CONFIG.PRICES.BOX;
     btnBox.textContent = `Купить (${CONFIG.PRICES.BOX} 🍾) [У тебя: ${this.inventory.box}]`;
 
-    // Кнопка Розового джина (многоразовая разблокировка)
-    btnFart.disabled = this.bottles < CONFIG.PRICES.FART || this.inventory.fart;
-    if (this.inventory.fart) {
-      btnFart.textContent = 'Разблокировано';
+    // Кнопка Розового джина: расходник на ближайший забег, максимум 3 штуки.
+    const fartLimit = CONFIG.FART_MAX_RUN_CHARGES;
+    btnFart.disabled = this.bottles < CONFIG.PRICES.FART || this.inventory.fart >= fartLimit;
+    if (this.inventory.fart >= fartLimit) {
+      btnFart.textContent = `Максимум ${fartLimit}/${fartLimit}`;
       btnFart.classList.add('btn-secondary');
     } else {
-      btnFart.textContent = `Разблокировать (${CONFIG.PRICES.FART} 🍾)`;
+      btnFart.textContent = `Купить (${CONFIG.PRICES.FART} 🍾) [На забег: ${this.inventory.fart}/${fartLimit}]`;
       btnFart.classList.remove('btn-secondary');
     }
 
@@ -161,8 +164,12 @@ class UIManager {
       this.inventory.box++;
       localStorage.setItem('inv_box', this.inventory.box);
     } else if (itemType === 'fart') {
-      this.inventory.fart = true;
-      localStorage.setItem('inv_fart', 'true');
+      if (this.inventory.fart >= CONFIG.FART_MAX_RUN_CHARGES) {
+        this.bottles += price;
+        localStorage.setItem('gin_bottles', this.bottles);
+        return;
+      }
+      this.inventory.fart++;
     } else if (itemType === 'napkin') {
       // Бонус 3: перенаправление на заданный URL в новой вкладке
       window.open(CONFIG.NAPKIN_URL, '_blank');
@@ -176,18 +183,59 @@ class UIManager {
   // Начать игровой HUD
   startHUD() {
     this.showScreen('hud');
+    this.lastHUDBottles = 0;
     this.updateHUDBottles(0);
     this.updateHUDScore(0);
+    this.updateChaseMeter(0);
     this.hideBonusBadges();
   }
 
   updateHUDBottles(count) {
     document.getElementById('hud-bottles').textContent = count;
+    if (count > this.lastHUDBottles) {
+      this.showBottlePickup(count - this.lastHUDBottles);
+    }
+    this.lastHUDBottles = count;
+  }
+
+  showBottlePickup(amount) {
+    const badge = document.getElementById('hud-bottles-badge');
+    if (!badge) return;
+
+    badge.classList.remove('pickup-pop');
+    void badge.offsetWidth;
+    badge.classList.add('pickup-pop');
+
+    const float = document.createElement('span');
+    float.className = 'bottle-float';
+    float.textContent = `+${amount} 🍾`;
+    badge.appendChild(float);
+
+    setTimeout(() => {
+      float.remove();
+      badge.classList.remove('pickup-pop');
+    }, 780);
   }
 
   updateHUDScore(score) {
     const formatted = String(Math.floor(score)).padStart(6, '0');
     document.getElementById('hud-score').textContent = formatted;
+  }
+
+  updateChaseMeter(dangerPercent) {
+    const safePercent = Math.max(0, Math.min(100, dangerPercent));
+    const fill = document.getElementById('chase-fill');
+    const status = document.getElementById('chase-status');
+    if (!fill || !status) return;
+
+    fill.style.width = `${safePercent}%`;
+    if (safePercent >= 78) {
+      status.textContent = 'РЯДОМ';
+    } else if (safePercent >= 42) {
+      status.textContent = 'БЛИЗКО';
+    } else {
+      status.textContent = 'ДАЛЕКО';
+    }
   }
 
   // Отображение активных бонусов в HUD
@@ -236,6 +284,13 @@ class UIManager {
       return true;
     }
     return false;
+  }
+
+  useFartChargesForRun() {
+    const charges = Math.min(CONFIG.FART_MAX_RUN_CHARGES, this.inventory.fart);
+    this.inventory.fart = 0;
+    this.updateShopButtons();
+    return charges;
   }
 }
 

@@ -22,6 +22,7 @@ export class WorldGenerator {
       sidewalk: new THREE.MeshStandardMaterial({ map: sidewalkTex, roughness: 0.9 }),
       grass: new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }),
       curb: new THREE.MeshStandardMaterial({ map: curbTex, roughness: 0.8 }),
+      laneMarking: new THREE.MeshBasicMaterial({ color: 0xfff1b8 }),
       
       balcony: new THREE.MeshStandardMaterial({ color: 0x7c5a43, roughness: 0.9 }),
       roof: new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.9 }),
@@ -164,6 +165,7 @@ export class WorldGenerator {
     chunkGroup.add(grassL, grassR);
 
     // Добавляем лужи на дороге
+    this.spawnLaneMarkings(chunkGroup, roadWidth);
     this.spawnPuddles(chunkGroup);
 
     // 4. Генерация хрущёвок по бокам (чуть глубже на газоне)
@@ -183,6 +185,26 @@ export class WorldGenerator {
 
     this.activeChunks.push(chunk);
     return chunk;
+  }
+
+  spawnLaneMarkings(group, roadWidth) {
+    const dashGeo = new THREE.BoxGeometry(0.08, 0.025, 2.8);
+    const edgeGeo = new THREE.BoxGeometry(0.07, 0.026, this.chunkLength);
+    const laneLines = [-CONFIG.LANE_WIDTH / 2, CONFIG.LANE_WIDTH / 2];
+
+    laneLines.forEach(x => {
+      for (let z = 2; z < this.chunkLength; z += 8) {
+        const dash = new THREE.Mesh(dashGeo, this.materials.laneMarking);
+        dash.position.set(x, 0.035, z);
+        group.add(dash);
+      }
+    });
+
+    [-roadWidth / 2 + 0.35, roadWidth / 2 - 0.35].forEach(x => {
+      const edge = new THREE.Mesh(edgeGeo, this.materials.laneMarking);
+      edge.position.set(x, 0.034, this.chunkLength / 2);
+      group.add(edge);
+    });
   }
 
   // Генерация луж
