@@ -181,6 +181,7 @@ export class CollectibleManager {
 
       bonusGroup.add(box, wingL, wingR);
     } 
+    else {
       // Розовая бутылка (Розовый джин) в легком свечении
       const pinkBottle = this.createBottleMesh(true);
       pinkBottle.scale.set(1.2, 1.2, 1.2);
