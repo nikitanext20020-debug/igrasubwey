@@ -196,6 +196,7 @@ export class Player {
   }
 
   reset() {
+    this.mesh.visible = true; // Сброс видимости родительской группы после возрождения!
     this.mesh.position.set(0, 0, 0);
     this.previousZ = 0;
     this.targetX = 0;
@@ -454,10 +455,16 @@ export class Player {
 
     // Обновляем частицы
     this.updateFartParticles(dt);
-    // Обновляем FBX анимации или псевдо-анимацию
-    if (this.jumpMixer) this.jumpMixer.update(dt);
-    if (this.presentationMixer) this.presentationMixer.update(dt);
-    if (this.crashMixer) this.crashMixer.update(dt);
+    // Обновляем FBX анимации или псевдо-анимацию (только когда они активны для экономии CPU)
+    if (this.jumpMixer && this.shouldUseJumpModel()) {
+      this.jumpMixer.update(dt);
+    }
+    if (this.presentationMixer && this.presentationMode === 'idle') {
+      this.presentationMixer.update(dt);
+    }
+    if (this.crashMixer && this.isStumbling) {
+      this.crashMixer.update(dt);
+    }
     if (this.mixer) {
       this.mixer.update(dt);
       this.updateFBXAnimations();

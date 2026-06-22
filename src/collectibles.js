@@ -44,7 +44,10 @@ export class CollectibleManager {
 
     // Общие геометрии (кэшируем, чтобы не пересоздавать их на видеокарте при каждом спавне)
     this.geometries = {
-      bottle: new THREE.CylinderGeometry(0.05, 0.11, 0.6, 8), // Упрощенная форма бутылки: 1 меш вместо 4-х!
+      bottleBody: new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8),
+      bottleNeck: new THREE.CylinderGeometry(0.05, 0.05, 0.2, 8),
+      bottleLabel: new THREE.CylinderGeometry(0.125, 0.125, 0.22, 8),
+      bottleCap: new THREE.CylinderGeometry(0.06, 0.06, 0.06, 8),
       box: new THREE.BoxGeometry(0.4, 0.4, 0.4),
       wing: new THREE.BoxGeometry(0.4, 0.02, 0.15),
       ring: new THREE.TorusGeometry(0.55, 0.035, 8, 40),
@@ -135,13 +138,28 @@ export class CollectibleManager {
 
     const glassMat = isPink ? this.materials.glassPink : this.materials.glassGreen;
 
-    // Всего один меш вместо четырех! Максимальная оптимизация отрисовки и памяти
-    const bottleMesh = new THREE.Mesh(this.geometries.bottle, glassMat);
-    bottleMesh.position.y = 0.3; // Приподнимаем над землей на половину высоты
-    bottleMesh.castShadow = true;
-    bottleMesh.receiveShadow = true;
-    
-    bottleGroup.add(bottleMesh);
+    // 1. Корпус бутылки
+    const body = new THREE.Mesh(this.geometries.bottleBody, glassMat);
+    body.position.y = 0.25;
+    body.castShadow = true;
+    bottleGroup.add(body);
+
+    // 2. Горлышко бутылки
+    const neck = new THREE.Mesh(this.geometries.bottleNeck, glassMat);
+    neck.position.y = 0.6;
+    neck.castShadow = true;
+    bottleGroup.add(neck);
+
+    // 3. Этикетка с надписью "ДЖИН"
+    const label = new THREE.Mesh(this.geometries.bottleLabel, this.materials.label);
+    label.position.y = 0.25;
+    bottleGroup.add(label);
+
+    // 4. Крышка
+    const cap = new THREE.Mesh(this.geometries.bottleCap, this.materials.cap);
+    cap.position.y = 0.73;
+    bottleGroup.add(cap);
+
     return bottleGroup;
   }
 
