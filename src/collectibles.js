@@ -42,6 +42,15 @@ export class CollectibleManager {
     this.pinkGinTexture.colorSpace = THREE.SRGBColorSpace;
     this.pinkGinTexture.anisotropy = 4;
 
+    // Общие геометрии (кэшируем, чтобы не пересоздавать их на видеокарте при каждом спавне)
+    this.geometries = {
+      bottle: new THREE.CylinderGeometry(0.05, 0.11, 0.6, 8), // Упрощенная форма бутылки: 1 меш вместо 4-х!
+      box: new THREE.BoxGeometry(0.4, 0.4, 0.4),
+      wing: new THREE.BoxGeometry(0.4, 0.02, 0.15),
+      ring: new THREE.TorusGeometry(0.55, 0.035, 8, 40),
+      glow: new THREE.SphereGeometry(0.72, 16, 12)
+    };
+
     // Подключение FBX Бутылки отключено ради оптимизации!
     this.bottleFBX = null;
     // setTimeout(() => this.loadFBXModel(), 2500);
@@ -126,32 +135,13 @@ export class CollectibleManager {
 
     const glassMat = isPink ? this.materials.glassPink : this.materials.glassGreen;
 
-    // 1. Корпус бутылки
-    const bodyGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8);
-    const body = new THREE.Mesh(bodyGeo, glassMat);
-    body.position.y = 0.25;
-    body.castShadow = true;
-    bottleGroup.add(body);
-
-    // 2. Горлышко бутылки
-    const neckGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.2, 8);
-    const neck = new THREE.Mesh(neckGeo, glassMat);
-    neck.position.y = 0.6;
-    neck.castShadow = true;
-    bottleGroup.add(neck);
-
-    // 3. Этикетка с надписью "ДЖИН"
-    const labelGeo = new THREE.CylinderGeometry(0.125, 0.125, 0.22, 8);
-    const label = new THREE.Mesh(labelGeo, this.materials.label);
-    label.position.y = 0.25;
-    bottleGroup.add(label);
-
-    // 4. Крышка
-    const capGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.06, 8);
-    const cap = new THREE.Mesh(capGeo, this.materials.cap);
-    cap.position.y = 0.73;
-    bottleGroup.add(cap);
-
+    // Всего один меш вместо четырех! Максимальная оптимизация отрисовки и памяти
+    const bottleMesh = new THREE.Mesh(this.geometries.bottle, glassMat);
+    bottleMesh.position.y = 0.3; // Приподнимаем над землей на половину высоты
+    bottleMesh.castShadow = true;
+    bottleMesh.receiveShadow = true;
+    
+    bottleGroup.add(bottleMesh);
     return bottleGroup;
   }
 
@@ -161,13 +151,11 @@ export class CollectibleManager {
 
     if (type === 'box_flight') {
       // Модель летящей коробки в миниатюре
-      const boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-      const box = new THREE.Mesh(boxGeo, this.materials.boxCardboard);
+      const box = new THREE.Mesh(this.geometries.box, this.materials.boxCardboard);
       box.position.y = 0.2;
       box.castShadow = true;
       
-      const wingGeo = new THREE.BoxGeometry(0.4, 0.02, 0.15);
-      const wingL = new THREE.Mesh(wingGeo, this.materials.wings);
+      const wingL = new THREE.Mesh(this.geometries.wing, this.materials.wings);
       wingL.position.set(-0.3, 0.25, 0);
       
       const wingR = wingL.clone();
@@ -188,13 +176,11 @@ export class CollectibleManager {
       photo.position.set(0, 0.62, 0.08);
       photo.scale.set(0.9, 1.25, 1);
 
-      const ringGeo = new THREE.TorusGeometry(0.55, 0.035, 8, 40);
-      const ring = new THREE.Mesh(ringGeo, this.materials.pinkAura);
+      const ring = new THREE.Mesh(this.geometries.ring, this.materials.pinkAura);
       ring.position.y = 0.1;
       ring.rotation.x = Math.PI / 2;
 
-      const glowGeo = new THREE.SphereGeometry(0.72, 16, 12);
-      const glow = new THREE.Mesh(glowGeo, this.materials.pinkAura);
+      const glow = new THREE.Mesh(this.geometries.glow, this.materials.pinkAura);
       glow.position.y = 0.55;
 
       const light = new THREE.PointLight(0xff4fa3, 1.2, 4);
@@ -354,10 +340,7 @@ export class CollectibleManager {
 
   // Очистка геометрии
   disposeMesh(obj) {
-    obj.traverse(child => {
-      if (child.isMesh && child.geometry) {
-        child.geometry.dispose();
-      }
-    });
+    // Внимание: Общие геометрии из this.geometries удалять нельзя, так как они используются другими бутылками!
+    // Это полностью решает проблему лагов при сборке бутылок из-за сборщика мусора и пересоздания буферов на GPU.
   }
 }

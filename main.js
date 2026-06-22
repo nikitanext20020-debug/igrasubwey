@@ -756,6 +756,8 @@ class Game {
         exp.mesh.material.opacity = 1 - (exp.age / 1.5);
         if (exp.age > 1.5) {
           this.scene.remove(exp.mesh);
+          if (exp.mesh.geometry) exp.mesh.geometry.dispose();
+          if (exp.mesh.material) exp.mesh.material.dispose();
           this.explosions.splice(i, 1);
         }
       }
