@@ -45,6 +45,11 @@ export class ObstacleManager {
     this.babushkaFallFBX = null;
     this.babushkaAnimations = null;
     this.babushkaFallAnimations = null;
+
+    // Пулы объектов для оптимизации производительности (предотвращают лаги при клонировании скелетов)
+    this.babushkaPool = [];
+    this.babushkaFallPool = [];
+
     setTimeout(() => this.loadFBXModel(), 2000);
   }
 
@@ -124,7 +129,11 @@ export class ObstacleManager {
   reset() {
     this.obstacles.forEach(obs => {
       this.scene.remove(obs.mesh);
-      this.disposeMesh(obs.mesh);
+      if (obs.type === 'babushka') {
+        this.recycleVisuals(obs);
+      } else {
+        this.disposeMesh(obs.mesh);
+      }
     });
     this.obstacles = [];
   }
@@ -132,29 +141,34 @@ export class ObstacleManager {
   // Спавн препятствий на новом чанке: микс "живых" и городских преград.
   spawnObstaclesForChunk(chunkStartZ, chunkLength) {
     const beforeCount = this.obstacles.length;
-    const numGroups = 4 + Math.floor(Math.random() * 2);
+    const numGroups = 3 + Math.floor(Math.random() * 2); // 3-4 группы на чанк (уменьшено)
     const step = chunkLength / numGroups;
 
-    if (this.babushkaFBX) {
-      const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-      this.spawnSingleBabushka(lanes[0], chunkStartZ + 18, false);
-      this.spawnSingleBabushka(lanes[1], chunkStartZ + 46, false);
+    // Редкий спавн одной бабушки на чанк (с вероятностью 30%) вместо двух обязательных
+    if (this.babushkaFBX && Math.random() < 0.3) {
+      const lane = Math.floor(Math.random() * 3) - 1;
+      this.spawnSingleBabushka(lane, chunkStartZ + 15 + Math.random() * 30, Math.random() > 0.6);
     }
 
     for (let i = 0; i < numGroups; i++) {
       const zPos = chunkStartZ + i * step + 15 + Math.random() * 10;
       
-      const groupType = Math.floor(Math.random() * 4);
+      const groupType = Math.floor(Math.random() * 5); // 5 типов
 
-      if (groupType === 0 || (this.babushkaFBX && Math.random() < 0.28)) {
-        // Одиночная бабушка
-        const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
-        const isMoving = false;
-        this.spawnSingleBabushka(lane, zPos, isMoving);
+      if (groupType === 0) {
+        if (this.babushkaFBX && Math.random() < 0.35) {
+          // Одиночная бабушка
+          const lane = Math.floor(Math.random() * 3) - 1;
+          const isMoving = Math.random() < 0.25;
+          this.spawnSingleBabushka(lane, zPos, isMoving);
+        } else {
+          const lane = Math.floor(Math.random() * 3) - 1;
+          this.spawnLaneObstacle(lane, zPos, Math.random() > 0.5 ? 'trash' : 'bench');
+        }
       } 
       else if (groupType === 1) {
         // Две полосы заняты разными городскими штуками
-        const freeLane = Math.floor(Math.random() * 3) - 1; // Свободная полоса
+        const freeLane = Math.floor(Math.random() * 3) - 1;
         for (let lane = -1; lane <= 1; lane++) {
           if (lane !== freeLane) {
             this.spawnLaneObstacle(lane, zPos + Math.random() * 2, Math.random() > 0.5 ? 'cone_pack' : 'trash');
@@ -332,26 +346,29 @@ export class ObstacleManager {
     let visual = null;
 
     if (this.babushkaFBX) {
-      const clone = SkeletonUtils.clone(this.babushkaFBX);
-      visual = clone;
+      if (this.babushkaPool.length > 0) {
+        visual = this.babushkaPool.pop();
+      } else {
+        visual = SkeletonUtils.clone(this.babushkaFBX);
+      }
       
       // Настраиваем масштаб (аналогично игроку и преследователю)
-      clone.scale.setScalar(0.8); 
-      clone.position.set(0, 0, 0);
-      clone.rotation.set(0, Math.PI, 0); // Поворачиваем лицом к игроку
-      this.normalizeVisualToHeight(clone, 0.95);
+      visual.scale.setScalar(0.8); 
+      visual.position.set(0, 0, 0);
+      visual.rotation.set(0, Math.PI, 0); // Поворачиваем лицом к игроку
+      this.normalizeVisualToHeight(visual, 0.95);
       
-      clone.traverse(child => {
+      visual.traverse(child => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
         }
       });
-      babushka.add(clone);
+      babushka.add(visual);
 
       // Анимации для бабушки
       if (this.babushkaAnimations && this.babushkaAnimations.length > 0) {
-        mixer = new THREE.AnimationMixer(clone);
+        mixer = new THREE.AnimationMixer(visual);
         let clip = this.babushkaAnimations[0];
         
         // Пытаемся найти анимацию ходьбы или бега
@@ -385,19 +402,41 @@ export class ObstacleManager {
       isMoving,
       moveSpeed: 0,
       voicePlayed: false,
+      wasHit: false, // Было ли столкновение
       mixer
     });
+  }
+
+  recycleVisuals(obs) {
+    if (obs.type === 'babushka' && obs.visual) {
+      obs.mesh.remove(obs.visual);
+      if (obs.wasHit) {
+        this.babushkaFallPool.push(obs.visual);
+      } else {
+        this.babushkaPool.push(obs.visual);
+      }
+      obs.visual = null;
+    }
   }
 
   playHitEffect(obs) {
     if (!obs || obs.type !== 'babushka' || !this.babushkaFallFBX) return;
 
     if (obs.visual) {
+      // Отправляем стоячую бабушку в пул
       obs.mesh.remove(obs.visual);
-      this.disposeMesh(obs.visual);
+      this.babushkaPool.push(obs.visual);
+      obs.visual = null;
     }
 
-    const fall = SkeletonUtils.clone(this.babushkaFallFBX);
+    // Достаем падающую бабушку из пула или создаем
+    let fall;
+    if (this.babushkaFallPool.length > 0) {
+      fall = this.babushkaFallPool.pop();
+    } else {
+      fall = SkeletonUtils.clone(this.babushkaFallFBX);
+    }
+    
     fall.scale.setScalar(0.8);
     fall.position.set(0, 0, 0);
     fall.rotation.set(0, Math.PI, 0);
@@ -411,6 +450,7 @@ export class ObstacleManager {
 
     obs.mesh.add(fall);
     obs.visual = fall;
+    obs.wasHit = true;
 
     if (this.babushkaFallAnimations && this.babushkaFallAnimations.length > 0) {
       obs.mixer = new THREE.AnimationMixer(fall);
@@ -529,7 +569,11 @@ export class ObstacleManager {
       // 3. Удаление препятствий, оставшихся далеко позади игрока
       if (obs.mesh.position.z < playerZ - 15) {
         this.scene.remove(obs.mesh);
-        this.disposeMesh(obs.mesh);
+        if (obs.type === 'babushka') {
+          this.recycleVisuals(obs);
+        } else {
+          this.disposeMesh(obs.mesh);
+        }
         this.obstacles.splice(i, 1);
       }
     }

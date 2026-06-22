@@ -181,18 +181,9 @@ export class CollectibleManager {
 
       bonusGroup.add(box, wingL, wingR);
     } 
-    else {
       // Розовая бутылка (Розовый джин) в легком свечении
       const pinkBottle = this.createBottleMesh(true);
       pinkBottle.scale.set(1.2, 1.2, 1.2);
-
-      const photo = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: this.pinkGinTexture,
-        transparent: true,
-        depthWrite: false
-      }));
-      photo.position.set(0, 0.62, 0.08);
-      photo.scale.set(0.9, 1.25, 1);
 
       const ring = new THREE.Mesh(this.geometries.ring, this.materials.pinkAura);
       ring.position.y = 0.1;
@@ -204,7 +195,7 @@ export class CollectibleManager {
       const light = new THREE.PointLight(0xff4fa3, 1.2, 4);
       light.position.y = 0.8;
 
-      bonusGroup.add(glow, pinkBottle, photo, ring, light);
+      bonusGroup.add(glow, pinkBottle, ring, light);
     }
 
     return bonusGroup;
