@@ -4,3 +4,6 @@ dev-server.log
 .agents/
 .DS_Store
 .npm-cache
+
+public/models/*.fbx
+public/models/*.fbm

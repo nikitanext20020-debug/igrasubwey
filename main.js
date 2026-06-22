@@ -46,6 +46,13 @@ class Game {
     
     // Переводим сцену в режим меню
     this.setupMenuScene();
+
+    // Авто-пауза при сворачивании игры/вкладки
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state === 'PLAYING') {
+        this.pauseGame();
+      }
+    });
   }
 
   // Инициализация Three.js движка (сцена, рендерер, камера, свет, туман)
@@ -75,7 +82,7 @@ class Game {
       powerPreference: "high-performance"
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.isMobileRuntime ? 1.15 : 1.75));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.shadowMap.enabled = !this.isMobileRuntime;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -533,12 +540,87 @@ class Game {
     this.pursuer.catchUp();
     this.player.isDead = true;
 
+    // Взрыв и исчезновение Вани (через небольшую задержку, чтобы Лиза добежала)
+    setTimeout(() => {
+      if (this.state === 'GAMEOVER') {
+        if (this.player.mesh) this.player.mesh.visible = false;
+        this.createExplosion(this.player.mesh.position);
+        audioManager.playSound('hit'); // Звук взрыва/удара
+      }
+    }, 400);
+
     // Небольшая задержка перед меню Game Over, чтобы показать сцену поимки
     setTimeout(() => {
       if (this.state === 'GAMEOVER') {
         uiManager.showGameOver(this.score, this.collectedBottles);
       }
-    }, 1500);
+    }, 2000);
+  }
+
+  createExplosion(position) {
+    const particleCount = 100;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      positions[i * 3] = position.x;
+      positions[i * 3 + 1] = position.y + 1; // Центр взрыва чуть выше земли
+      positions[i * 3 + 2] = position.z;
+
+      velocities.push({
+        x: (Math.random() - 0.5) * 15,
+        y: (Math.random() - 0.5) * 15 + 10,
+        z: (Math.random() - 0.5) * 15
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    const material = new THREE.PointsMaterial({
+      color: 0xff3300,
+      size: 0.6,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    if (!this.explosions) this.explosions = [];
+    this.explosions.push({ mesh: particles, velocities: velocities, age: 0 });
+  }
+
+  createPickupText(text, colorHex, position3D) {
+    const el = document.createElement('div');
+    el.innerText = text;
+    el.style.position = 'absolute';
+    el.style.color = '#fff';
+    el.style.fontWeight = 'bold';
+    el.style.fontSize = '24px';
+    el.style.textShadow = '0 0 10px #0f0, 0 0 20px #0f0';
+    el.style.pointerEvents = 'none';
+    el.style.zIndex = '100';
+    document.body.appendChild(el);
+
+    const vector = position3D.clone();
+    vector.y += 2.5; 
+    vector.project(this.camera);
+
+    const x = (vector.x * .5 + .5) * window.innerWidth;
+    const y = (-(vector.y * .5) + .5) * window.innerHeight;
+
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+
+    el.animate([
+      { transform: 'translate(-50%, 0) scale(1)', opacity: 1 },
+      { transform: 'translate(-50%, -100px) scale(1.5)', opacity: 0 }
+    ], {
+      duration: 1000,
+      easing: 'ease-out'
+    }).onfinish = () => el.remove();
   }
 
   handleCollision(collision) {
@@ -565,6 +647,16 @@ class Game {
     this.player.runSpeed = Math.max(CONFIG.INITIAL_SPEED * 0.72, this.player.runSpeed * 0.72);
     this.pursuer.setChaseDistance(CONFIG.LIZA_WARNING_DISTANCE);
     audioManager.playSFX('crash');
+    
+    this.player.isStumbling = true;
+    this.player.playCrashAnimation();
+    
+    setTimeout(() => {
+      if (this.state === 'PLAYING') {
+        this.player.isStumbling = false;
+        this.player.stopCrashAnimation();
+      }
+    }, 1200);
   }
 
   updateChasePressure(dt) {
@@ -611,6 +703,7 @@ class Game {
         if (type === 'gin') {
           this.collectedBottles += val;
           uiManager.updateHUDBottles(this.collectedBottles);
+          this.createPickupText('+1', 0x00ff00, this.player.mesh.position);
         } else if (type === 'box_flight') {
           // Коробка-самолет подобрана на трассе
           uiManager.updateBonusHUD('box', 100);
@@ -645,6 +738,27 @@ class Game {
     else if (this.state === 'MENU') {
       this.player.updatePresentation(dt);
       this.pursuer.updatePresentation(dt);
+    }
+
+    // Обновление частиц взрыва
+    if (this.explosions) {
+      for (let i = this.explosions.length - 1; i >= 0; i--) {
+        const exp = this.explosions[i];
+        exp.age += dt;
+        const positions = exp.mesh.geometry.attributes.position.array;
+        for (let j = 0; j < exp.velocities.length; j++) {
+          positions[j * 3] += exp.velocities[j].x * dt;
+          positions[j * 3 + 1] += exp.velocities[j].y * dt;
+          positions[j * 3 + 2] += exp.velocities[j].z * dt;
+          exp.velocities[j].y -= 30 * dt; // гравитация
+        }
+        exp.mesh.geometry.attributes.position.needsUpdate = true;
+        exp.mesh.material.opacity = 1 - (exp.age / 1.5);
+        if (exp.age > 1.5) {
+          this.scene.remove(exp.mesh);
+          this.explosions.splice(i, 1);
+        }
+      }
     }
 
     // Слежение камеры

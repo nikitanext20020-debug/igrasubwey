@@ -55,6 +55,8 @@ export class Player {
     this.loadPresentationModel();
     setTimeout(() => this.loadFBXModel(), 500);
     setTimeout(() => this.loadJumpModel(), 1500);
+    setTimeout(() => this.loadPresentationModel(), 2000);
+    setTimeout(() => this.loadCrashModel(), 2500);
   }
 
   // Создание low-poly 3D-модели Вани из примитивов
@@ -203,7 +205,8 @@ export class Player {
     this.isGrounded = true;
     this.isJumping = false;
     this.isSliding = false;
-    this.isDead = false; // Важно сбросить флаг смерти для повторного старта!
+    this.isDead = false;
+    this.isStumbling = false; // Важно сбросить флаг смерти для повторного старта!
     this.runSpeed = CONFIG.INITIAL_SPEED;
     
     this.fartFuel = CONFIG.FART_MAX_FUEL;
@@ -452,13 +455,10 @@ export class Player {
 
     // Обновляем частицы
     this.updateFartParticles(dt);
-
-    this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
-
     // Обновляем FBX анимации или псевдо-анимацию
-    if (this.jumpMixer && this.jumpFBX && this.jumpFBX.visible) {
-      this.jumpMixer.update(dt);
-    }
+    if (this.jumpMixer) this.jumpMixer.update(dt);
+    if (this.presentationMixer) this.presentationMixer.update(dt);
+    if (this.crashMixer) this.crashMixer.update(dt);
     if (this.mixer) {
       this.mixer.update(dt);
       this.updateFBXAnimations();
@@ -599,6 +599,27 @@ export class Player {
     this.syncRuntimeModelVisibility(visible);
   }
 
+  playCrashAnimation() {
+    if (this.crashAction && this.crashFBX) {
+      // Прячем основные модели, показываем crash
+      if (this.fbxModel) this.fbxModel.visible = false;
+      if (this.jumpFBX) this.jumpFBX.visible = false;
+      if (this.modelGroup) this.modelGroup.visible = false;
+      
+      this.crashFBX.visible = true;
+      this.crashAction.reset();
+      this.crashAction.play();
+    }
+  }
+
+  stopCrashAnimation() {
+    if (this.crashAction && this.crashFBX) {
+      this.crashFBX.visible = false;
+      this.crashAction.stop();
+      this.syncRuntimeModelVisibility(this.activeBonus !== 'box');
+    }
+  }
+
   shouldUseJumpModel() {
     return Boolean(
       this.jumpFBX &&
@@ -609,14 +630,23 @@ export class Player {
   }
 
   syncRuntimeModelVisibility(visible = true) {
-    const showPresentation = visible && this.presentationMode === 'idle' && this.activeBonus !== 'box';
-    const showJump = visible && this.shouldUseJumpModel();
-    const showMain = visible && this.presentationMode !== 'idle' && !showJump && this.activeBonus !== 'box';
-
-    this.modelGroup.visible = false;
-    if (this.presentationFBX) this.presentationFBX.visible = showPresentation;
-    if (this.jumpFBX) this.jumpFBX.visible = showJump;
-    if (this.fbxModel) this.fbxModel.visible = showMain;
+    if (this.activeBonus === 'box') {
+      if (this.fbxModel) this.fbxModel.visible = false;
+      if (this.jumpFBX) this.jumpFBX.visible = false;
+      if (this.crashFBX) this.crashFBX.visible = false;
+      if (this.modelGroup) this.modelGroup.visible = false;
+    } else {
+      // Обычный бег/прыжок
+      const isJumping = this.isJumping || this.isFarting;
+      if (this.fbxModel) this.fbxModel.visible = visible && !isJumping && !this.isStumbling;
+      if (this.jumpFBX) this.jumpFBX.visible = visible && isJumping && !this.isStumbling;
+      if (this.crashFBX) this.crashFBX.visible = visible && this.isStumbling;
+      if (!this.fbxModel && this.modelGroup) {
+        this.modelGroup.visible = visible && !this.isStumbling;
+      }
+    }
+    
+    if (this.presentationFBX) this.presentationFBX.visible = visible && this.presentationMode === 'idle' && this.activeBonus !== 'box';
   }
 
   setPresentationMode(mode) {
@@ -826,6 +856,41 @@ export class Player {
     };
 
     tryLoad(0);
+  }
+
+  loadCrashModel() {
+    const loader = new GLTFLoader();
+    loader.load('models/vanyacrash.glb', (gltf) => {
+      try {
+        const model = gltf.scene;
+        this.crashFBX = model;
+        model.scale.setScalar(0.85);
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.visible = false;
+
+        model.traverse(child => {
+          if (child && child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        this.mesh.add(model);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          this.crashMixer = new THREE.AnimationMixer(model);
+          const action = this.crashMixer.clipAction(gltf.animations[0]);
+          action.clampWhenFinished = true;
+          action.loop = THREE.LoopOnce;
+          this.crashAction = action;
+        }
+        
+        console.log(`Vanya crash GLB loaded successfully`);
+      } catch (e) {
+        console.error('Error parsing Vanya crash GLB:', e);
+      }
+    }, undefined, () => console.warn('vanyacrash.glb not found'));
   }
 
   // Обновление состояния анимаций FBX
