@@ -5,5 +5,5 @@ dev-server.log
 .DS_Store
 .npm-cache
 
-public/models/*.fbx
-public/models/*.fbm
+models/*.fbx
+models/*.fbm
