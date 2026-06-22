@@ -545,7 +545,7 @@ class Game {
       if (this.state === 'GAMEOVER') {
         if (this.player.mesh) this.player.mesh.visible = false;
         this.createExplosion(this.player.mesh.position);
-        audioManager.playSound('hit'); // Звук взрыва/удара
+        audioManager.playSFX('hit'); // Звук взрыва/удара
       }
     }, 400);
 
@@ -599,7 +599,7 @@ class Game {
     el.style.color = '#fff';
     el.style.fontWeight = 'bold';
     el.style.fontSize = '24px';
-    el.style.textShadow = '0 0 10px #0f0, 0 0 20px #0f0';
+    el.style.textShadow = '1px 1px 2px #000'; // Optimized shadow
     el.style.pointerEvents = 'none';
     el.style.zIndex = '100';
     document.body.appendChild(el);

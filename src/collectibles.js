@@ -42,25 +42,14 @@ export class CollectibleManager {
     this.pinkGinTexture.colorSpace = THREE.SRGBColorSpace;
     this.pinkGinTexture.anisotropy = 4;
 
-    // Подключение FBX Бутылки
+    // Подключение FBX Бутылки отключено ради оптимизации!
     this.bottleFBX = null;
-    setTimeout(() => this.loadFBXModel(), 2500);
+    // setTimeout(() => this.loadFBXModel(), 2500);
   }
 
-  // Загрузка GLB модели бутылки
+  // Загрузка GLB модели бутылки (ОТКЛЮЧЕНО ДЛЯ ОПТИМИЗАЦИИ)
   loadFBXModel() {
-    const loader = new GLTFLoader();
-    loader.load('models/bottle.glb', (gltf) => {
-      try {
-        this.bottleFBX = gltf.scene;
-        console.log('Bottle GLB Model loaded successfully!');
-      } catch (e) {
-        console.error('Error parsing Bottle GLB Model:', e);
-        this.bottleFBX = null;
-      }
-    }, undefined, (err) => {
-      console.warn('Bottle GLB Model file models/bottle.glb not found. Playing with fallback rounded primitives.');
-    });
+    // Больше не загружаем тяжелую модельку бутылки
   }
 
   // Очистка всех предметов на сцене
