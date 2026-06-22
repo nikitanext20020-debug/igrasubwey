@@ -15,6 +15,7 @@ class UIManager {
     localStorage.removeItem('inv_fart');
 
     this.onStartGameCallback = null;
+    this.onPauseGameCallback = null;
     this.onResumeGameCallback = null;
     this.onQuitGameCallback = null;
     this.activeScreen = 'main-menu';
@@ -23,6 +24,7 @@ class UIManager {
 
   init(callbacks) {
     this.onStartGameCallback = callbacks.onStart;
+    this.onPauseGameCallback = callbacks.onPause;
     this.onResumeGameCallback = callbacks.onResume;
     this.onQuitGameCallback = callbacks.onQuit;
 
@@ -69,7 +71,11 @@ class UIManager {
 
     // Пауза
     document.getElementById('btn-pause').addEventListener('click', () => {
-      this.showPause(true);
+      if (this.onPauseGameCallback) {
+        this.onPauseGameCallback();
+      } else {
+        this.showPause(true);
+      }
     });
     document.getElementById('btn-resume').addEventListener('click', () => {
       this.showPause(false);
@@ -85,10 +91,15 @@ class UIManager {
       if (this.onStartGameCallback) this.onStartGameCallback();
     });
     document.getElementById('btn-shop-go').addEventListener('click', () => {
+      if (this.onQuitGameCallback) this.onQuitGameCallback();
       this.showScreen('shop-menu');
     });
     document.getElementById('btn-menu-go').addEventListener('click', () => {
-      this.showScreen('main-menu');
+      if (this.onQuitGameCallback) {
+        this.onQuitGameCallback();
+      } else {
+        this.showScreen('main-menu');
+      }
     });
   }
 

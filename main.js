@@ -34,6 +34,7 @@ class Game {
     // Инициализируем UI и связываем коллбэки
     uiManager.init({
       onStart: () => this.startGame(),
+      onPause: () => this.pauseGame(),
       onResume: () => this.resumeGame(),
       onQuit: () => this.quitToMenu()
     });

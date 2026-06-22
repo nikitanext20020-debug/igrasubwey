@@ -350,36 +350,40 @@ export class ObstacleManager {
         visual = this.babushkaPool.pop();
       } else {
         visual = SkeletonUtils.clone(this.babushkaFBX);
+        
+        // Настраиваем масштаб (аналогично игроку и преследователю)
+        visual.scale.setScalar(0.8); 
+        this.normalizeVisualToHeight(visual, 0.95);
+        
+        visual.traverse(child => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
       }
-      
-      // Настраиваем масштаб (аналогично игроку и преследователю)
-      visual.scale.setScalar(0.8); 
+
       visual.position.set(0, 0, 0);
       visual.rotation.set(0, Math.PI, 0); // Поворачиваем лицом к игроку
-      this.normalizeVisualToHeight(visual, 0.95);
-      
-      visual.traverse(child => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
       babushka.add(visual);
 
       // Анимации для бабушки
       if (this.babushkaAnimations && this.babushkaAnimations.length > 0) {
-        mixer = new THREE.AnimationMixer(visual);
-        let clip = this.babushkaAnimations[0];
-        
-        // Пытаемся найти анимацию ходьбы или бега
-        const walkClip = this.babushkaAnimations.find(c => {
-          const name = c.name.toLowerCase();
-          return name.includes('walk') || name.includes('run') || name.includes('go') || name.includes('move');
-        });
-        if (walkClip) clip = walkClip;
+        if (!visual.userData.mixer) {
+          visual.userData.mixer = new THREE.AnimationMixer(visual);
+          let clip = this.babushkaAnimations[0];
+          
+          // Пытаемся найти анимацию ходьбы или бега
+          const walkClip = this.babushkaAnimations.find(c => {
+            const name = c.name.toLowerCase();
+            return name.includes('walk') || name.includes('run') || name.includes('go') || name.includes('move');
+          });
+          if (walkClip) clip = walkClip;
 
-        const action = mixer.clipAction(clip);
-        action.play();
+          visual.userData.action = visual.userData.mixer.clipAction(clip);
+        }
+        mixer = visual.userData.mixer;
+        visual.userData.action.reset().play();
       }
     } else {
       this.scene.remove(babushka);
@@ -435,29 +439,33 @@ export class ObstacleManager {
       fall = this.babushkaFallPool.pop();
     } else {
       fall = SkeletonUtils.clone(this.babushkaFallFBX);
+      fall.scale.setScalar(0.8);
+      this.normalizeVisualToHeight(fall, 0.85);
+      fall.traverse(child => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
     }
-    
-    fall.scale.setScalar(0.8);
+
     fall.position.set(0, 0, 0);
     fall.rotation.set(0, Math.PI, 0);
-    this.normalizeVisualToHeight(fall, 0.85);
-    fall.traverse(child => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
 
     obs.mesh.add(fall);
     obs.visual = fall;
     obs.wasHit = true;
 
     if (this.babushkaFallAnimations && this.babushkaFallAnimations.length > 0) {
-      obs.mixer = new THREE.AnimationMixer(fall);
-      const action = obs.mixer.clipAction(this.babushkaFallAnimations[0]);
-      action.setLoop(THREE.LoopOnce, 1);
-      action.clampWhenFinished = true;
-      action.play();
+      if (!fall.userData.mixer) {
+        fall.userData.mixer = new THREE.AnimationMixer(fall);
+        const action = fall.userData.mixer.clipAction(this.babushkaFallAnimations[0]);
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        fall.userData.action = action;
+      }
+      obs.mixer = fall.userData.mixer;
+      fall.userData.action.reset().play();
     }
   }
 
