@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Ваня Бежит! - 3D Раннер</title>
   <meta name="description" content="Полноценный 3D-раннер в стиле Subway Surfers в российском дворе. Уворачивайся от бабушек, собирай джин и летай на коробке!">
+
+  <!-- Import map для корректной работы без сборщика (на GitHub Pages) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
   <script>
     window.addEventListener('error', function(e) {
       var errDiv = document.getElementById('debug-err') || document.createElement('div');
