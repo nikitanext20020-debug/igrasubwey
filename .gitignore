@@ -3,3 +3,4 @@ dist/
 dev-server.log
 .agents/
 .DS_Store
+.npm-cache
