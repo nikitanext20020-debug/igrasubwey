@@ -53,6 +53,7 @@ export class Player {
     this.jumpAction = null;
     this.mixer = null;
     this.fbxActions = {};
+    this.characterOpacity = null;
     this.loadPresentationModel();
     setTimeout(() => this.loadFBXModel(), 500);
     setTimeout(() => this.loadJumpModel(), 1500);
@@ -987,6 +988,9 @@ export class Player {
   }
 
   setCharacterMeshOpacity(opacity) {
+    if (this.characterOpacity === opacity) return;
+    this.characterOpacity = opacity;
+
     const applyOpacity = (obj) => {
       obj.traverse(child => {
         if (child.isMesh && child.material) {
