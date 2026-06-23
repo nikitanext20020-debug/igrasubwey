@@ -203,8 +203,9 @@ class AudioManager {
   // Воспроизведение короткого SFX
   playSFX(type) {
     if (!this.soundEnabled) return;
+    const sfxType = type === 'hit' ? 'crash' : type;
 
-    const buffer = this.sfxBuffers[type];
+    const buffer = this.sfxBuffers[sfxType];
     const context = buffer ? this.getAudioContext() : null;
     if (buffer && context) {
       const source = context.createBufferSource();
@@ -217,14 +218,15 @@ class AudioManager {
       return;
     }
 
-    if (this.audioUnlocked) {
-      this.loadSFXBuffer(type, this.paths[type]);
+    const src = this.paths[sfxType];
+    if (this.audioUnlocked && src) {
+      this.loadSFXBuffer(sfxType, src);
     }
 
     // Частый звук бутылок лучше пропустить до готовности буфера, чем фризить кадр через HTMLAudio seek.
-    if (type === 'pickup') return;
+    if (sfxType === 'pickup') return;
     
-    const sfx = this.sfxElements[type];
+    const sfx = this.sfxElements[sfxType];
     if (!sfx) return;
 
     sfx.volume = this.sfxVolume;
