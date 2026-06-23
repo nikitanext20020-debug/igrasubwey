@@ -9,6 +9,8 @@ export class CollectibleManager {
     this.scene = scene;
     this.items = [];
     this.bottlePool = [];
+    this.bottlePoolLimit = 56;
+    this.bottlePrewarmCount = 28;
     this.lastPickupSoundAt = 0;
 
     // Материалы
@@ -56,14 +58,36 @@ export class CollectibleManager {
       glow: new THREE.SphereGeometry(0.72, 16, 12)
     };
 
-    // Подключение FBX Бутылки отключено ради оптимизации!
-    this.bottleFBX = null;
-    // setTimeout(() => this.loadFBXModel(), 2500);
+    this.bottleModel = null;
+    this.loadBottleModel();
   }
 
-  // Загрузка GLB модели бутылки (ОТКЛЮЧЕНО ДЛЯ ОПТИМИЗАЦИИ)
-  loadFBXModel() {
-    // Больше не загружаем тяжелую модельку бутылки
+  // Загрузка облегченной GLB-модели бутылки. Клоны переиспользуются через пул.
+  loadBottleModel() {
+    const loader = new GLTFLoader();
+    loader.load('models/bututl.glb', (gltf) => {
+      try {
+        this.bottleModel = gltf.scene;
+        this.bottleModel.traverse(child => {
+          if (child && child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = false;
+          }
+        });
+
+        // Старые процедурные бутылки из пула больше не нужны после загрузки GLB.
+        this.bottlePool = [];
+        for (let i = 0; i < this.bottlePrewarmCount; i++) {
+          this.bottlePool.push(this.createBottleModelInstance(false));
+        }
+        console.log(`Bottle GLB loaded successfully: models/bututl.glb`);
+      } catch (e) {
+        console.error('Error parsing Bottle GLB:', e);
+        this.bottleModel = null;
+      }
+    }, undefined, () => {
+      console.warn('Bottle GLB model models/bututl.glb not found. Using procedural bottles.');
+    });
   }
 
   // Очистка всех предметов на сцене
@@ -111,40 +135,47 @@ export class CollectibleManager {
 
   // Спавн 3D модели бутылки джина
   createBottleMesh(isPink = false) {
-    if (!isPink && !this.bottleFBX && this.bottlePool.length > 0) {
+    if (!isPink && this.bottlePool.length > 0) {
       const pooledBottle = this.bottlePool.pop();
+      pooledBottle.userData.released = false;
       pooledBottle.visible = true;
+      pooledBottle.position.set(0, 0, 0);
       pooledBottle.rotation.set(0, 0, 0);
       pooledBottle.scale.set(1, 1, 1);
       return pooledBottle;
     }
 
-    const bottleGroup = new THREE.Group();
-
-    if (this.bottleFBX) {
-      const clone = this.bottleFBX.clone();
-      
-      // Настраиваем масштаб (подбираем размер, чтобы бутылка была высотой примерно 0.6м)
-      clone.scale.setScalar(0.55); 
-      clone.position.set(0, 0.15, 0);
-      clone.rotation.set(0, 0, 0);
-      
-      const glassMat = isPink ? this.materials.glassPink : this.materials.glassGreen;
-      
-      clone.traverse(child => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          if (isPink) {
-            child.material = glassMat;
-          }
-        }
-      });
-      
-      bottleGroup.add(clone);
-      return bottleGroup;
+    if (this.bottleModel) {
+      return this.createBottleModelInstance(isPink);
     }
 
+    return this.createProceduralBottleMesh(isPink);
+  }
+
+  createBottleModelInstance(isPink = false) {
+    const bottleGroup = new THREE.Group();
+    const clone = this.bottleModel.clone(true);
+
+    clone.scale.setScalar(0.58);
+    clone.position.set(0, 0, 0);
+    clone.rotation.set(0, 0, 0);
+
+    if (isPink) {
+      clone.traverse(child => {
+        if (child.isMesh) {
+          child.material = this.materials.glassPink;
+        }
+      });
+    }
+
+    bottleGroup.userData.bottleKind = 'model';
+    bottleGroup.userData.released = false;
+    bottleGroup.add(clone);
+    return bottleGroup;
+  }
+
+  createProceduralBottleMesh(isPink = false) {
+    const bottleGroup = new THREE.Group();
     const glassMat = isPink ? this.materials.glassPink : this.materials.glassGreen;
 
     // 1. Корпус бутылки
@@ -169,6 +200,8 @@ export class CollectibleManager {
     cap.position.y = 0.73;
     bottleGroup.add(cap);
 
+    bottleGroup.userData.bottleKind = 'procedural';
+    bottleGroup.userData.released = false;
     return bottleGroup;
   }
 
@@ -370,8 +403,19 @@ export class CollectibleManager {
   releaseItem(item) {
     this.scene.remove(item.mesh);
 
-    if (item.type === 'gin' && !this.bottleFBX) {
+    const shouldPoolBottle = (
+      item.type === 'gin' &&
+      !item.mesh.userData.released &&
+      this.bottlePool.length < this.bottlePoolLimit &&
+      (!this.bottleModel || item.mesh.userData.bottleKind === 'model')
+    );
+
+    if (shouldPoolBottle) {
+      item.mesh.userData.released = true;
       item.mesh.visible = false;
+      item.mesh.position.set(0, -1000, 0);
+      item.mesh.rotation.set(0, 0, 0);
+      item.mesh.scale.set(1, 1, 1);
       this.bottlePool.push(item.mesh);
       return;
     }

@@ -7,7 +7,7 @@ import { Player } from './src/player.js';
 import { Pursuer } from './src/pursuer.js';
 import { WorldGenerator } from './src/world.js';
 import { ObstacleManager } from './src/obstacles.js';
-import { CollectibleManager } from './src/collectibles.js';
+import { CollectibleManager } from './src/collectibles.js?v=2';
 
 THREE.Cache.enabled = true;
 
