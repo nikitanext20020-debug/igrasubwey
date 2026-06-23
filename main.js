@@ -1,13 +1,13 @@
 // Главная точка входа игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { audioManager } from './src/audio.js';
-import { uiManager } from './src/ui.js';
-import { Player } from './src/player.js?v=2';
-import { Pursuer } from './src/pursuer.js';
+import { audioManager } from './src/audio.js?v=2';
+import { uiManager } from './src/ui.js?v=2';
+import { Player } from './src/player.js?v=3';
+import { Pursuer } from './src/pursuer.js?v=2';
 import { WorldGenerator } from './src/world.js?v=2';
-import { ObstacleManager } from './src/obstacles.js';
-import { CollectibleManager } from './src/collectibles.js?v=2';
+import { ObstacleManager } from './src/obstacles.js?v=2';
+import { CollectibleManager } from './src/collectibles.js?v=3';
 
 THREE.Cache.enabled = true;
 
@@ -190,16 +190,18 @@ class Game {
     this.player.reset();
     this.pursuer.reset();
 
-    this.player.mesh.position.set(-0.35, 0, 0.4);
+    const mobileMenu = this.isMobileRuntime;
+
+    this.player.mesh.position.set(mobileMenu ? -0.62 : -0.35, 0, mobileMenu ? 0.5 : 0.4);
     this.player.mesh.rotation.y = 0;
     this.player.setPresentationMode('idle');
 
-    this.pursuer.mesh.position.set(1.15, 0, -0.55);
-    this.pursuer.mesh.rotation.y = -0.25;
-    this.pursuer.setPresentationMode('kick');
+    this.pursuer.mesh.position.set(mobileMenu ? 0.58 : 1.05, 0, mobileMenu ? -0.2 : -0.45);
+    this.pursuer.mesh.rotation.y = mobileMenu ? -0.1 : -0.2;
+    this.pursuer.setPresentationMode('run');
 
-    this.camera.position.set(0, 1.35, 3.05);
-    this.camera.lookAt(new THREE.Vector3(-0.25, 1.05, 0));
+    this.camera.position.set(0, mobileMenu ? 1.45 : 1.35, mobileMenu ? 3.45 : 3.05);
+    this.camera.lookAt(new THREE.Vector3(mobileMenu ? -0.08 : -0.25, 1.05, 0));
   }
 
   // Постановочная сцена перед забегом: Ваня и Лиза встречаются взглядом.
@@ -219,12 +221,15 @@ class Game {
   }
 
   updateMenuCamera(dt) {
+    const mobileMenu = this.isMobileRuntime;
     const time = performance.now() * 0.001;
-    const target = new THREE.Vector3(-0.2 + Math.sin(time * 0.55) * 0.08, 1.08, 0.05);
+    const targetBaseX = mobileMenu ? -0.08 : -0.2;
+    const sway = mobileMenu ? 0.04 : 0.08;
+    const target = new THREE.Vector3(targetBaseX + Math.sin(time * 0.55) * sway, 1.08, 0.05);
 
-    this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, Math.sin(time * 0.4) * 0.08, 2 * dt);
-    this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 1.35, 3 * dt);
-    this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, 3.05, 3 * dt);
+    this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, Math.sin(time * 0.4) * sway, 2 * dt);
+    this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, mobileMenu ? 1.45 : 1.35, 3 * dt);
+    this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, mobileMenu ? 3.45 : 3.05, 3 * dt);
     this.camera.lookAt(target);
   }
 
@@ -817,7 +822,14 @@ class Game {
   }
 }
 
-// Инициализация при загрузке страницы
-window.addEventListener('load', () => {
+function bootGame() {
+  if (window.__game) return;
   window.__game = new Game();
-});
+}
+
+// Модульные импорты могут выполниться уже после load, особенно на GitHub Pages.
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', bootGame, { once: true });
+} else {
+  bootGame();
+}

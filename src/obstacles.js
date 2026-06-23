@@ -1,7 +1,7 @@
 // Модуль препятствий (Бабушек) для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js';
+import { audioManager } from './audio.js?v=2';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
@@ -49,6 +49,18 @@ export class ObstacleManager {
     // Пулы объектов для оптимизации производительности (предотвращают лаги при клонировании скелетов)
     this.babushkaPool = [];
     this.babushkaFallPool = [];
+    this.debrisPool = [];
+    this.activeDebris = [];
+    this.debrisGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.16);
+    this.debrisLifetime = 0.55;
+    this.debrisPiecesPerBurst = 6;
+    this.debrisMaterialSets = {
+      trash: [this.materials.bag, this.materials.metal, this.materials.plastic],
+      cone_pack: [this.materials.plastic, this.materials.rope],
+      bench: [this.materials.wood, this.materials.metal],
+      roadblock: [this.materials.warning, this.materials.asphalt, this.materials.metal],
+      barrier: [this.materials.warning, this.materials.asphalt, this.materials.metal]
+    };
 
     setTimeout(() => this.loadFBXModel(), 2000);
   }
@@ -114,6 +126,7 @@ export class ObstacleManager {
           }
         });
         this.babushkaFallAnimations = gltf.animations;
+        this.prewarmBabushkaFallPool(2);
         console.log(`Babushka fall GLB Model loaded successfully! animations=${gltf.animations.length}`);
       } catch (e) {
         console.error('Error parsing Babushka fall GLB Model:', e);
@@ -127,6 +140,7 @@ export class ObstacleManager {
 
   // Очистка всех препятствий
   reset() {
+    this.clearDebris();
     this.obstacles.forEach(obs => {
       this.scene.remove(obs.mesh);
       if (obs.type === 'babushka') {
@@ -424,7 +438,17 @@ export class ObstacleManager {
   }
 
   playHitEffect(obs) {
-    if (!obs || obs.type !== 'babushka' || !this.babushkaFallFBX) return;
+    if (!obs || obs.wasHit) return;
+
+    if (obs.type !== 'babushka') {
+      this.playStreetHitEffect(obs);
+      return;
+    }
+
+    if (!this.babushkaFallFBX) {
+      obs.wasHit = true;
+      return;
+    }
 
     if (obs.visual) {
       // Отправляем стоячую бабушку в пул
@@ -434,20 +458,7 @@ export class ObstacleManager {
     }
 
     // Достаем падающую бабушку из пула или создаем
-    let fall;
-    if (this.babushkaFallPool.length > 0) {
-      fall = this.babushkaFallPool.pop();
-    } else {
-      fall = SkeletonUtils.clone(this.babushkaFallFBX);
-      fall.scale.setScalar(0.8);
-      this.normalizeVisualToHeight(fall, 0.85);
-      fall.traverse(child => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
-    }
+    const fall = this.babushkaFallPool.pop() || this.createBabushkaFallVisual();
 
     fall.position.set(0, 0, 0);
     fall.rotation.set(0, Math.PI, 0);
@@ -466,6 +477,145 @@ export class ObstacleManager {
       }
       obs.mixer = fall.userData.mixer;
       fall.userData.action.reset().play();
+    }
+  }
+
+  createBabushkaFallVisual() {
+    const fall = SkeletonUtils.clone(this.babushkaFallFBX);
+    fall.scale.setScalar(0.8);
+    this.normalizeVisualToHeight(fall, 0.85);
+    fall.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    return fall;
+  }
+
+  prewarmBabushkaFallPool(count) {
+    if (!this.babushkaFallFBX) return;
+    while (this.babushkaFallPool.length < count) {
+      this.babushkaFallPool.push(this.createBabushkaFallVisual());
+    }
+  }
+
+  playStreetHitEffect(obs) {
+    obs.wasHit = true;
+
+    if (!obs.mesh) return;
+
+    obs.mesh.visible = false;
+    const center = obs.mesh.position.clone();
+    center.y = obs.type === 'barrier'
+      ? Math.max(0.45, (obs.yPos || obs.height * 0.5) * 0.8)
+      : Math.max(0.42, (obs.height || 1) * 0.45);
+    this.spawnDebris(center, obs);
+  }
+
+  createDebrisBurst() {
+    const group = new THREE.Group();
+    group.visible = false;
+    group.userData.age = 0;
+    group.userData.pieces = [];
+
+    for (let i = 0; i < this.debrisPiecesPerBurst; i++) {
+      const piece = new THREE.Mesh(this.debrisGeometry, this.materials.metal);
+      piece.castShadow = false;
+      piece.receiveShadow = false;
+      piece.userData.velocity = new THREE.Vector3();
+      piece.userData.spin = new THREE.Vector3();
+      group.add(piece);
+      group.userData.pieces.push(piece);
+    }
+
+    return group;
+  }
+
+  spawnDebris(center, obs) {
+    const burst = this.debrisPool.pop() || this.createDebrisBurst();
+    const materialKey = obs.obstacleType || obs.type;
+    const materials = this.debrisMaterialSets[materialKey] || this.debrisMaterialSets.barrier;
+    const width = Math.min(obs.width || 1.2, 3.2);
+    const depth = Math.min(obs.depth || 0.8, 1.6);
+
+    burst.position.copy(center);
+    burst.visible = true;
+    burst.userData.age = 0;
+
+    for (let i = 0; i < burst.userData.pieces.length; i++) {
+      const piece = burst.userData.pieces[i];
+      piece.visible = true;
+      piece.material = materials[i % materials.length];
+      piece.position.set(
+        (Math.random() - 0.5) * width * 0.55,
+        (Math.random() - 0.5) * 0.2,
+        (Math.random() - 0.5) * depth * 0.55
+      );
+      piece.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      piece.scale.setScalar(0.75 + Math.random() * 0.7);
+      piece.userData.velocity.set(
+        (Math.random() - 0.5) * 2.4,
+        1.2 + Math.random() * 1.15,
+        -1.5 - Math.random() * 1.8
+      );
+      piece.userData.spin.set(
+        (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 8
+      );
+    }
+
+    this.scene.add(burst);
+    this.activeDebris.push(burst);
+  }
+
+  clearDebris() {
+    for (let i = this.activeDebris.length - 1; i >= 0; i--) {
+      this.recycleDebrisBurst(i);
+    }
+  }
+
+  recycleDebrisBurst(index) {
+    const burst = this.activeDebris[index];
+    if (!burst) return;
+
+    if (burst.parent) {
+      burst.parent.remove(burst);
+    }
+    burst.visible = false;
+    this.activeDebris.splice(index, 1);
+    if (this.debrisPool.length < 18) {
+      this.debrisPool.push(burst);
+    }
+  }
+
+  updateDebris(dt) {
+    for (let i = this.activeDebris.length - 1; i >= 0; i--) {
+      const burst = this.activeDebris[i];
+      burst.userData.age += dt;
+
+      if (burst.userData.age >= this.debrisLifetime) {
+        this.recycleDebrisBurst(i);
+        continue;
+      }
+
+      for (const piece of burst.userData.pieces) {
+        const velocity = piece.userData.velocity;
+        const spin = piece.userData.spin;
+        velocity.y -= 5.8 * dt;
+        piece.position.x += velocity.x * dt;
+        piece.position.y += velocity.y * dt;
+        piece.position.z += velocity.z * dt;
+        piece.rotation.x += spin.x * dt;
+        piece.rotation.y += spin.y * dt;
+        piece.rotation.z += spin.z * dt;
+
+        if (piece.position.y < -0.28) {
+          piece.position.y = -0.28;
+          velocity.y *= -0.18;
+        }
+      }
     }
   }
 
@@ -554,6 +704,8 @@ export class ObstacleManager {
 
   // Обновление позиций бабушек в игровом цикле
   update(dt, playerZ) {
+    this.updateDebris(dt);
+
     for (let i = this.obstacles.length - 1; i >= 0; i--) {
       const obs = this.obstacles[i];
 

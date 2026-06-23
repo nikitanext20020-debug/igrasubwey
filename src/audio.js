@@ -7,6 +7,10 @@ class AudioManager {
     this.currentVoice = null;
     this.lastVoiceTime = 0;
     this.audioUnlocked = false;
+    this.musicBaseVolume = 0.32;
+    this.musicDuckedVolume = 0.14;
+    this.sfxVolume = 0.52;
+    this.musicDuckTimeout = null;
     
     // Пути к аудиофайлам
     this.paths = {
@@ -117,7 +121,7 @@ class AudioManager {
 
     const targetMusic = this.musicElements[type];
     if (targetMusic) {
-      targetMusic.volume = 0.4; // Чуть тише голосов
+      targetMusic.volume = this.musicBaseVolume;
       targetMusic.play().catch(err => {
         console.warn("Браузер заблокировал автовоспроизведение музыки. Ждем взаимодействия.");
       });
@@ -138,10 +142,43 @@ class AudioManager {
     const sfx = this.sfxElements[type];
     if (!sfx) return;
 
-    sfx.volume = 0.6;
+    sfx.volume = this.sfxVolume;
     sfx.pause();
     sfx.currentTime = 0;
     sfx.play().catch(() => {});
+  }
+
+  duckMusicForVoice(voice) {
+    const music = this.musicElements[this.currentMusic];
+    if (!music) return;
+
+    if (this.musicDuckTimeout) {
+      clearTimeout(this.musicDuckTimeout);
+      this.musicDuckTimeout = null;
+    }
+
+    music.volume = this.musicDuckedVolume;
+
+    const durationMs = Number.isFinite(voice.duration) && voice.duration > 0
+      ? voice.duration * 1000 + 180
+      : 1800;
+
+    this.musicDuckTimeout = setTimeout(() => {
+      if (this.currentVoice === voice && !voice.paused && !voice.ended) return;
+      this.restoreMusicVolume();
+    }, durationMs);
+  }
+
+  restoreMusicVolume() {
+    if (this.musicDuckTimeout) {
+      clearTimeout(this.musicDuckTimeout);
+      this.musicDuckTimeout = null;
+    }
+
+    const music = this.musicElements[this.currentMusic];
+    if (music && this.soundEnabled) {
+      music.volume = this.musicBaseVolume;
+    }
   }
 
   // Воспроизведение голоса с учетом приоритетов и задержек
@@ -165,9 +202,16 @@ class AudioManager {
     voice.volume = 1.0;
     this.currentVoice = voice;
     this.lastVoiceTime = now;
+    voice.onended = () => {
+      if (this.currentVoice === voice) {
+        this.currentVoice = null;
+        this.restoreMusicVolume();
+      }
+    };
     
     voice.pause();
     voice.currentTime = 0;
+    this.duckMusicForVoice(voice);
     voice.play().catch(() => {});
     return true;
   }
@@ -206,6 +250,7 @@ class AudioManager {
       this.currentVoice.pause();
       this.currentVoice = null;
     }
+    this.restoreMusicVolume();
   }
 }
 

@@ -1,7 +1,7 @@
 // Класс преследователя Лизы для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js';
+import { audioManager } from './audio.js?v=2';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Pursuer {
