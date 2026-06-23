@@ -1,8 +1,8 @@
 // Класс игрока Вани для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=3';
-import { uiManager } from './ui.js?v=3';
+import { audioManager } from './audio.js?v=4';
+import { uiManager } from './ui.js?v=4';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Player {

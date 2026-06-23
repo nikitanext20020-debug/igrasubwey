@@ -1,13 +1,13 @@
 // Главная точка входа игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { audioManager } from './src/audio.js?v=3';
-import { uiManager } from './src/ui.js?v=3';
-import { Player } from './src/player.js?v=4';
-import { Pursuer } from './src/pursuer.js?v=3';
+import { audioManager } from './src/audio.js?v=4';
+import { uiManager } from './src/ui.js?v=4';
+import { Player } from './src/player.js?v=5';
+import { Pursuer } from './src/pursuer.js?v=4';
 import { WorldGenerator } from './src/world.js?v=2';
-import { ObstacleManager } from './src/obstacles.js?v=3';
-import { CollectibleManager } from './src/collectibles.js?v=4';
+import { ObstacleManager } from './src/obstacles.js?v=4';
+import { CollectibleManager } from './src/collectibles.js?v=5';
 
 THREE.Cache.enabled = true;
 

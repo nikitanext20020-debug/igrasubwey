@@ -1,6 +1,6 @@
 // Менеджер интерфейса (UI) для игры «Ваня Бежит»
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=3';
+import { audioManager } from './audio.js?v=4';
 
 class UIManager {
   constructor() {

@@ -11,6 +11,9 @@ class AudioManager {
     this.musicDuckedVolume = 0.14;
     this.sfxVolume = 0.52;
     this.musicDuckTimeout = null;
+    this.audioContext = null;
+    this.sfxBuffers = {};
+    this.sfxBufferPromises = {};
     
     // Пути к аудиофайлам
     this.paths = {
@@ -82,6 +85,8 @@ class AudioManager {
   unlockAudio() {
     if (this.audioUnlocked) return;
     this.audioUnlocked = true;
+    this.getAudioContext();
+    this.preloadSFXBuffers();
 
     const all = [
       ...Object.values(this.sfxElements),
@@ -93,6 +98,52 @@ class AudioManager {
     });
   }
 
+  getAudioContext() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    if (!this.audioContext) {
+      this.audioContext = new AudioContextClass();
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+
+    return this.audioContext;
+  }
+
+  preloadSFXBuffers() {
+    Object.entries(this.paths)
+      .filter(([key]) => key === 'pickup' || key === 'crash' || key === 'puk')
+      .forEach(([type, src]) => this.loadSFXBuffer(type, src));
+  }
+
+  loadSFXBuffer(type, src) {
+    if (this.sfxBuffers[type]) return Promise.resolve(this.sfxBuffers[type]);
+    if (this.sfxBufferPromises[type]) return this.sfxBufferPromises[type];
+
+    const context = this.getAudioContext();
+    if (!context) return Promise.resolve(null);
+
+    this.sfxBufferPromises[type] = fetch(src)
+      .then(response => {
+        if (!response.ok) throw new Error(`SFX fetch failed: ${src}`);
+        return response.arrayBuffer();
+      })
+      .then(data => context.decodeAudioData(data))
+      .then(buffer => {
+        this.sfxBuffers[type] = buffer;
+        return buffer;
+      })
+      .catch(err => {
+        console.warn(`Не удалось подготовить SFX буфер: ${src}`, err);
+        return null;
+      });
+
+    return this.sfxBufferPromises[type];
+  }
+
   // Включение/выключение звука
   toggleSound() {
     this.soundEnabled = !this.soundEnabled;
@@ -101,6 +152,8 @@ class AudioManager {
     if (!this.soundEnabled) {
       this.stopAll();
     } else {
+      this.getAudioContext();
+      this.preloadSFXBuffers();
       // Возобновляем музыку, если она должна играть
       if (this.currentMusic) {
         this.playMusic(this.currentMusic);
@@ -150,6 +203,26 @@ class AudioManager {
   // Воспроизведение короткого SFX
   playSFX(type) {
     if (!this.soundEnabled) return;
+
+    const buffer = this.sfxBuffers[type];
+    const context = buffer ? this.getAudioContext() : null;
+    if (buffer && context) {
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = this.sfxVolume;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.start(0);
+      return;
+    }
+
+    if (this.audioUnlocked) {
+      this.loadSFXBuffer(type, this.paths[type]);
+    }
+
+    // Частый звук бутылок лучше пропустить до готовности буфера, чем фризить кадр через HTMLAudio seek.
+    if (type === 'pickup') return;
     
     const sfx = this.sfxElements[type];
     if (!sfx) return;
