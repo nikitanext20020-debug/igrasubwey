@@ -1,13 +1,13 @@
 // Главная точка входа игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { audioManager } from './src/audio.js?v=2';
-import { uiManager } from './src/ui.js?v=2';
-import { Player } from './src/player.js?v=3';
-import { Pursuer } from './src/pursuer.js?v=2';
+import { audioManager } from './src/audio.js?v=3';
+import { uiManager } from './src/ui.js?v=3';
+import { Player } from './src/player.js?v=4';
+import { Pursuer } from './src/pursuer.js?v=3';
 import { WorldGenerator } from './src/world.js?v=2';
-import { ObstacleManager } from './src/obstacles.js?v=2';
-import { CollectibleManager } from './src/collectibles.js?v=3';
+import { ObstacleManager } from './src/obstacles.js?v=3';
+import { CollectibleManager } from './src/collectibles.js?v=4';
 
 THREE.Cache.enabled = true;
 
@@ -28,6 +28,7 @@ class Game {
     this.cleanRunTimer = 0;
     this.pickupTextEl = null;
     this.pickupTextAnimation = null;
+    this.assetsReady = false;
 
     this.initEngine();
     this.initObjects();
@@ -40,6 +41,7 @@ class Game {
       onResume: () => this.resumeGame(),
       onQuit: () => this.quitToMenu()
     });
+    this.initAssetGate();
 
     // Запускаем игровой цикл
     this.animate();
@@ -182,6 +184,31 @@ class Game {
 
     // Первый запуск мира (для меню)
     this.worldGen.reset();
+  }
+
+  initAssetGate() {
+    const assetPromises = [
+      this.player.readyPromise,
+      this.pursuer.readyPromise,
+      this.obstacleManager.readyPromise,
+      this.collectibleManager.readyPromise
+    ].filter(Boolean);
+
+    this.setPlayLoading(true);
+    Promise.allSettled(assetPromises).then(() => {
+      this.assetsReady = true;
+      this.setPlayLoading(false);
+    });
+  }
+
+  setPlayLoading(isLoading) {
+    const playButton = document.getElementById('btn-play');
+    if (!playButton) return;
+
+    playButton.disabled = isLoading;
+    playButton.textContent = isLoading ? 'ЗАГРУЗКА...' : 'ИГРАТЬ';
+    playButton.style.cursor = isLoading ? 'wait' : '';
+    playButton.style.opacity = isLoading ? '0.72' : '';
   }
 
   // Настройка витринной сцены меню: Ваня близко к камере, Лиза видна в кадре.
@@ -487,6 +514,11 @@ class Game {
 
   // Старт нового забега
   startGame() {
+    if (!this.assetsReady) {
+      this.setPlayLoading(true);
+      return;
+    }
+
     this.state = 'INTRO';
     this.score = 0;
     this.collectedBottles = 0;
@@ -505,6 +537,7 @@ class Game {
     uiManager.startHUD();
 
     audioManager.stopMusic();
+    audioManager.prepareMusic('run');
     this.startWithBoxBonus = uiManager.useBox();
     this.player.setFartCharges(uiManager.useFartChargesForRun());
     this.setupIntroScene();

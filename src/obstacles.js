@@ -1,7 +1,7 @@
 // Модуль препятствий (Бабушек) для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=2';
+import { audioManager } from './audio.js?v=3';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
@@ -61,8 +61,27 @@ export class ObstacleManager {
       roadblock: [this.materials.warning, this.materials.asphalt, this.materials.metal],
       barrier: [this.materials.warning, this.materials.asphalt, this.materials.metal]
     };
+    this.assetTrackers = {
+      standingBabushka: this.createReadyTracker(),
+      fallingBabushka: this.createReadyTracker()
+    };
+    this.readyPromise = Promise.all(Object.values(this.assetTrackers).map(tracker => tracker.promise));
 
     setTimeout(() => this.loadFBXModel(), 2000);
+  }
+
+  createReadyTracker() {
+    let resolve;
+    const promise = new Promise(done => {
+      resolve = done;
+    });
+    return { promise, resolve, done: false };
+  }
+
+  markReady(tracker) {
+    if (!tracker || tracker.done) return;
+    tracker.done = true;
+    tracker.resolve();
   }
 
   // Загрузка GLB модели бабушки
@@ -97,9 +116,12 @@ export class ObstacleManager {
         console.error('Error parsing Babushka standing GLB Model:', e);
         this.babushkaFBX = null;
         this.babushkaAnimations = null;
+      } finally {
+        this.markReady(this.assetTrackers.standingBabushka);
       }
     }, undefined, (err) => {
       console.warn('Babushka standing GLB Model file models/babkastoit.glb not found.');
+      this.markReady(this.assetTrackers.standingBabushka);
     });
 
     loader.load('models/babkapadait.glb', (gltf) => {
@@ -132,9 +154,12 @@ export class ObstacleManager {
         console.error('Error parsing Babushka fall GLB Model:', e);
         this.babushkaFallFBX = null;
         this.babushkaFallAnimations = null;
+      } finally {
+        this.markReady(this.assetTrackers.fallingBabushka);
       }
     }, undefined, (err) => {
       console.warn('Babushka fall GLB Model file models/babkapadait.glb not found.');
+      this.markReady(this.assetTrackers.fallingBabushka);
     });
   }
 

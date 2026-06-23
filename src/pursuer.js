@@ -1,7 +1,7 @@
 // Класс преследователя Лизы для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=2';
+import { audioManager } from './audio.js?v=3';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Pursuer {
@@ -31,8 +31,27 @@ export class Pursuer {
     this.kickMixer = null;
     this.mixer = null;
     this.fbxActions = {};
+    this.assetTrackers = {
+      liza: this.createReadyTracker(),
+      kick: this.createReadyTracker()
+    };
+    this.readyPromise = Promise.all(Object.values(this.assetTrackers).map(tracker => tracker.promise));
     this.loadFBXModel();
     setTimeout(() => this.loadKickModel(), 1000);
+  }
+
+  createReadyTracker() {
+    let resolve;
+    const promise = new Promise(done => {
+      resolve = done;
+    });
+    return { promise, resolve, done: false };
+  }
+
+  markReady(tracker) {
+    if (!tracker || tracker.done) return;
+    tracker.done = true;
+    tracker.resolve();
   }
 
   // Создание low-poly 3D-модели Лизы из примитивов
@@ -461,9 +480,12 @@ export class Pursuer {
         console.error('Error parsing Liza GLB Model:', e);
         this.fbxModel = null;
         this.modelGroup.visible = false;
+      } finally {
+        this.markReady(this.assetTrackers.liza);
       }
     }, undefined, (err) => {
       console.warn('Liza GLB Model file models/liza.glb not found.');
+      this.markReady(this.assetTrackers.liza);
     });
   }
 
@@ -501,9 +523,12 @@ export class Pursuer {
       } catch (e) {
         console.error('Error parsing Liza kick GLB:', e);
         this.kickFBX = null;
+      } finally {
+        this.markReady(this.assetTrackers.kick);
       }
     }, undefined, () => {
       console.warn('Liza kick model models/lizanoga.glb not found.');
+      this.markReady(this.assetTrackers.kick);
     });
   }
 }

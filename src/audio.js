@@ -15,8 +15,8 @@ class AudioManager {
     // Пути к аудиофайлам
     this.paths = {
       // Музыка
-      menuMusic: 'audio/music/menu_music.mp3',
-      runMusic: 'audio/music/run_music.mp3',
+      menuMusic: 'audio/music/menu_music.m4a',
+      runMusic: 'audio/music/run_music.m4a',
       
       // Спецэффекты
       pickup: 'audio/sfx/pickup.mp3',
@@ -40,14 +40,14 @@ class AudioManager {
     
     // Предварительно созданные аудио-элементы для музыки
     this.musicElements = {
-      menu: this.createAudio(this.paths.menuMusic, true),
-      run: this.createAudio(this.paths.runMusic, true)
+      menu: this.createAudio(this.paths.menuMusic, true, 'none'),
+      run: this.createAudio(this.paths.runMusic, true, 'none')
     };
 
     this.sfxElements = {
-      pickup: this.createAudio(this.paths.pickup),
-      crash: this.createAudio(this.paths.crash),
-      puk: this.createAudio(this.paths.puk)
+      pickup: this.createAudio(this.paths.pickup, false, 'auto'),
+      crash: this.createAudio(this.paths.crash, false, 'auto'),
+      puk: this.createAudio(this.paths.puk, false, 'auto')
     };
 
     this.voiceElements = {};
@@ -57,7 +57,7 @@ class AudioManager {
       ...this.paths.voiceBabushka,
       ...this.paths.voiceLiza
     ].forEach(src => {
-      this.voiceElements[src] = this.createAudio(src);
+      this.voiceElements[src] = this.createAudio(src, false, 'metadata');
     });
 
     window.addEventListener('pointerdown', () => this.unlockAudio(), { once: true, passive: true });
@@ -65,11 +65,13 @@ class AudioManager {
   }
 
   // Создание аудио с заглушкой ошибок
-  createAudio(src, loop = false) {
+  createAudio(src, loop = false, preload = 'metadata') {
     const audio = new Audio(src);
     audio.loop = loop;
-    audio.preload = 'auto';
-    audio.load();
+    audio.preload = preload;
+    if (preload !== 'none') {
+      audio.load();
+    }
     audio.addEventListener('error', (e) => {
       // Игнорируем ошибки отсутствия файлов, чтобы игра продолжала работать
       console.warn(`Аудиофайл не найден или не может быть загружен: ${src}`);
@@ -82,7 +84,6 @@ class AudioManager {
     this.audioUnlocked = true;
 
     const all = [
-      ...Object.values(this.musicElements),
       ...Object.values(this.sfxElements),
       ...Object.values(this.voiceElements)
     ];
@@ -109,9 +110,17 @@ class AudioManager {
   }
 
   // Запуск фоновой музыки
+  prepareMusic(type) {
+    const targetMusic = this.musicElements[type];
+    if (!targetMusic || !this.soundEnabled || !this.audioUnlocked) return;
+    if (targetMusic.readyState === HTMLMediaElement.HAVE_NOTHING) {
+      targetMusic.load();
+    }
+  }
+
   playMusic(type) {
     this.currentMusic = type;
-    if (!this.soundEnabled) return;
+    if (!this.soundEnabled || !this.audioUnlocked) return;
 
     // Останавливаем всю музыку
     Object.values(this.musicElements).forEach(el => {
@@ -122,6 +131,9 @@ class AudioManager {
     const targetMusic = this.musicElements[type];
     if (targetMusic) {
       targetMusic.volume = this.musicBaseVolume;
+      if (targetMusic.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        targetMusic.load();
+      }
       targetMusic.play().catch(err => {
         console.warn("Браузер заблокировал автовоспроизведение музыки. Ждем взаимодействия.");
       });

@@ -1,8 +1,8 @@
 // Класс игрока Вани для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=2';
-import { uiManager } from './ui.js?v=2';
+import { audioManager } from './audio.js?v=3';
+import { uiManager } from './ui.js?v=3';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Player {
@@ -54,10 +54,31 @@ export class Player {
     this.mixer = null;
     this.fbxActions = {};
     this.characterOpacity = null;
+    this.assetTrackers = {
+      run: this.createReadyTracker(),
+      presentation: this.createReadyTracker(),
+      jump: this.createReadyTracker(),
+      crash: this.createReadyTracker()
+    };
+    this.readyPromise = Promise.all(Object.values(this.assetTrackers).map(tracker => tracker.promise));
     this.loadPresentationModel();
     setTimeout(() => this.loadFBXModel(), 500);
     setTimeout(() => this.loadJumpModel(), 1500);
     setTimeout(() => this.loadCrashModel(), 2500);
+  }
+
+  createReadyTracker() {
+    let resolve;
+    const promise = new Promise(done => {
+      resolve = done;
+    });
+    return { promise, resolve, done: false };
+  }
+
+  markReady(tracker) {
+    if (!tracker || tracker.done) return;
+    tracker.done = true;
+    tracker.resolve();
   }
 
   // Создание low-poly 3D-модели Вани из примитивов
@@ -816,9 +837,12 @@ export class Player {
         console.error('Error parsing Vanya GLB Model:', e);
         this.fbxModel = null;
         this.modelGroup.visible = false;
+      } finally {
+        this.markReady(this.assetTrackers.run);
       }
     }, undefined, (err) => {
       console.warn('Vanya GLB Model file models/vanya.glb not found.');
+      this.markReady(this.assetTrackers.run);
     });
   }
 
@@ -854,9 +878,12 @@ export class Player {
       } catch (e) {
         console.error('Error parsing Vanya presentation GLB:', e);
         this.presentationFBX = null;
+      } finally {
+        this.markReady(this.assetTrackers.presentation);
       }
     }, undefined, () => {
       console.warn('Vanya presentation model models/vanyaidet.glb not found.');
+      this.markReady(this.assetTrackers.presentation);
     });
   }
 
@@ -873,6 +900,7 @@ export class Player {
     const tryLoad = (index) => {
       if (index >= candidates.length) {
         console.warn(`Vanya jump model not found.`);
+        this.markReady(this.assetTrackers.jump);
         return;
       }
 
@@ -909,6 +937,8 @@ export class Player {
           this.jumpFBX = null;
           this.jumpMixer = null;
           this.jumpAction = null;
+        } finally {
+          this.markReady(this.assetTrackers.jump);
         }
       }, undefined, () => tryLoad(index + 1));
     };
@@ -947,8 +977,13 @@ export class Player {
         console.log(`Vanya crash GLB loaded successfully`);
       } catch (e) {
         console.error('Error parsing Vanya crash GLB:', e);
+      } finally {
+        this.markReady(this.assetTrackers.crash);
       }
-    }, undefined, () => console.warn('vanyacrash.glb not found'));
+    }, undefined, () => {
+      console.warn('vanyacrash.glb not found');
+      this.markReady(this.assetTrackers.crash);
+    });
   }
 
   // Обновление состояния анимаций FBX

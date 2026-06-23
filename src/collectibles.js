@@ -1,7 +1,7 @@
 // Модуль собираемых предметов (Бутылок джина и бонусов) для игры «Ваня Бежит»
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { audioManager } from './audio.js?v=2';
+import { audioManager } from './audio.js?v=3';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class CollectibleManager {
@@ -59,7 +59,23 @@ export class CollectibleManager {
     };
 
     this.bottleModel = null;
+    this.bottleReady = this.createReadyTracker();
+    this.readyPromise = this.bottleReady.promise;
     this.loadBottleModel();
+  }
+
+  createReadyTracker() {
+    let resolve;
+    const promise = new Promise(done => {
+      resolve = done;
+    });
+    return { promise, resolve, done: false };
+  }
+
+  markReady(tracker) {
+    if (!tracker || tracker.done) return;
+    tracker.done = true;
+    tracker.resolve();
   }
 
   // Загрузка облегченной GLB-модели бутылки. Клоны переиспользуются через пул.
@@ -84,9 +100,12 @@ export class CollectibleManager {
       } catch (e) {
         console.error('Error parsing Bottle GLB:', e);
         this.bottleModel = null;
+      } finally {
+        this.markReady(this.bottleReady);
       }
     }, undefined, () => {
       console.warn('Bottle GLB model models/bututl.glb not found. Using procedural bottles.');
+      this.markReady(this.bottleReady);
     });
   }
 

@@ -1,3 +1,3 @@
 Сюда нужно положить музыкальные файлы:
-- menu_music.mp3
-- run_music.mp3
+- menu_music.m4a
+- run_music.m4a
