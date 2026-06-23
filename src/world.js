@@ -42,8 +42,6 @@ export class WorldGenerator {
       ],
       carGlass: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1, opacity: 0.8, transparent: true }),
       wheel: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
-      
-      puddle: new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.1, metalness: 0.8 }),
       pigeon: new THREE.MeshStandardMaterial({ color: 0x8a9ba8, roughness: 0.9 })
     };
 
@@ -164,9 +162,7 @@ export class WorldGenerator {
     grassR.position.x = roadWidth / 2 + sidewalkWidth + grassWidth / 2;
     chunkGroup.add(grassL, grassR);
 
-    // Добавляем лужи на дороге
     this.spawnLaneMarkings(chunkGroup, roadWidth);
-    this.spawnPuddles(chunkGroup);
 
     // 4. Генерация хрущёвок по бокам (чуть глубже на газоне)
     // Хрущёвки стоят на расстоянии X = ±15
@@ -205,24 +201,6 @@ export class WorldGenerator {
       edge.position.set(x, 0.034, this.chunkLength / 2);
       group.add(edge);
     });
-  }
-
-  // Генерация луж
-  spawnPuddles(group) {
-    const numPuddles = Math.floor(Math.random() * 2);
-    for (let i = 0; i < numPuddles; i++) {
-      const sizeX = 1 + Math.random() * 1.5;
-      const sizeZ = 1.5 + Math.random() * 2;
-      const puddleGeo = new THREE.BoxGeometry(sizeX, 0.02, sizeZ);
-      const puddle = new THREE.Mesh(puddleGeo, this.materials.puddle);
-      
-      const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
-      const posX = lane * CONFIG.LANE_WIDTH + (Math.random() - 0.5) * 0.5;
-      const posZ = Math.random() * this.chunkLength;
-      
-      puddle.position.set(posX, 0.01, posZ);
-      group.add(puddle);
-    }
   }
 
   // Создание модульных пятиэтажных хрущёвок с текстурами фасадов

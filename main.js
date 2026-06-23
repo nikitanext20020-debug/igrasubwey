@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { audioManager } from './src/audio.js';
 import { uiManager } from './src/ui.js';
-import { Player } from './src/player.js';
+import { Player } from './src/player.js?v=2';
 import { Pursuer } from './src/pursuer.js';
-import { WorldGenerator } from './src/world.js';
+import { WorldGenerator } from './src/world.js?v=2';
 import { ObstacleManager } from './src/obstacles.js';
 import { CollectibleManager } from './src/collectibles.js?v=2';
 

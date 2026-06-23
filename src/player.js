@@ -918,7 +918,7 @@ export class Player {
 
   loadCrashModel() {
     const loader = new GLTFLoader();
-    loader.load('models/vanyacrash.glb', (gltf) => {
+    loader.load('models/vanyacrash.glb?v=2', (gltf) => {
       try {
         const model = gltf.scene;
         this.crashFBX = model;
