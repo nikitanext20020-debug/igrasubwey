@@ -40,6 +40,7 @@ class UIManager {
   bindElements() {
     // Получение экранов
     this.screens = {
+      'loading-screen': document.getElementById('loading-screen'),
       'main-menu': document.getElementById('main-menu'),
       'shop-menu': document.getElementById('shop-menu'),
       'hud': document.getElementById('hud'),

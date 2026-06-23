@@ -68,8 +68,22 @@
   <!-- ИНТЕРФЕЙС ИГРЫ -->
   <div id="ui-container">
     
+    <!-- 0. Экран загрузки -->
+    <div id="loading-screen" class="ui-screen active">
+      <div class="loading-overlay-content">
+        <h2 class="loading-title">ВАНЯ ГОТОВИТСЯ К ПОБЕГУ</h2>
+        <div class="loading-progress-container">
+          <div id="loading-progress-bar" class="loading-progress-bar">
+            <div id="loading-progress-fill" class="loading-progress-fill"></div>
+          </div>
+          <div id="loading-text" class="loading-text">Загрузка ресурсов... 0%</div>
+        </div>
+        <p id="loading-tip" class="loading-tip">Совет: Розовый джин дает реактивный пук на целый забег!</p>
+      </div>
+    </div>
+
     <!-- 1. Главное меню -->
-    <div id="main-menu" class="ui-screen active">
+    <div id="main-menu" class="ui-screen">
       <div class="menu-header">
         <h1 class="game-title">ВАНЯ<br><span class="accent-title">БЕЖИТ!</span></h1>
         <p class="game-subtitle">Ваня, беги. Лиза уже рядом.</p>

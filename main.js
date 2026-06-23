@@ -8,6 +8,7 @@ import { Pursuer } from './src/pursuer.js?v=5';
 import { WorldGenerator } from './src/world.js?v=2';
 import { ObstacleManager } from './src/obstacles.js?v=5';
 import { CollectibleManager } from './src/collectibles.js?v=6';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 THREE.Cache.enabled = true;
 
@@ -49,8 +50,8 @@ class Game {
     // Запускаем музыку меню сразу
     audioManager.playMusic('menu');
     
-    // Переводим сцену в режим меню
-    this.setupMenuScene();
+    // Переводим сцену в режим меню (теперь вызывается после загрузки)
+    // this.setupMenuScene();
 
     // Авто-пауза при сворачивании игры/вкладки
     document.addEventListener('visibilitychange', () => {
@@ -187,6 +188,91 @@ class Game {
   }
 
   initAssetGate() {
+    this.state = 'LOADING';
+    this.loadingTimer = 0;
+
+    // Скрываем примитивы, чтобы они не мешали заставке
+    if (this.player && this.player.mesh) this.player.mesh.visible = false;
+    if (this.pursuer && this.pursuer.mesh) this.pursuer.mesh.visible = false;
+
+    // Показываем выделенный экран загрузки
+    uiManager.showScreen('loading-screen');
+
+    // Рандомный совет на экране загрузки
+    const LOADING_TIPS = [
+      "Совет: Розовый джин дает реактивный пук на целый забег!",
+      "Совет: Бабушки на лавочках очень бдительны. Перепрыгивай их!",
+      "Совет: Коробка-самолет защищает от всех препятствий в воздухе.",
+      "Совет: Собирай пустые бутылки, чтобы купить полезные бонусы в магазине.",
+      "Совет: Чем дальше ты бежишь, тем быстрее догоняет Лиза!",
+      "Совет: Подкаты (S или стрелка вниз) помогают проскальзывать под препятствиями."
+    ];
+    const tipEl = document.getElementById('loading-tip');
+    if (tipEl) {
+      tipEl.textContent = LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)];
+    }
+
+    console.warn('[initAssetGate] Starting load of models/VANYAFRONTVIEW.glb...');
+    const loader = new GLTFLoader();
+    loader.load('models/VANYAFRONTVIEW.glb', (gltf) => {
+      console.warn('[initAssetGate] VANYAFRONTVIEW loaded successfully!');
+      this.vanyaLoadingMesh = gltf.scene;
+      
+      if (gltf.animations && gltf.animations.length > 0) {
+        console.warn(`[initAssetGate] Found ${gltf.animations.length} animations for VANYAFRONTVIEW`);
+        this.loadingMixer = new THREE.AnimationMixer(this.vanyaLoadingMesh);
+        const action = this.loadingMixer.clipAction(gltf.animations[0]);
+        action.play();
+      } else {
+        console.warn('[initAssetGate] No animations found in VANYAFRONTVIEW');
+      }
+      
+      // Используем контейнер для правильного вращения без улетания модели
+      this.vanyaLoadingContainer = new THREE.Group();
+      this.scene.add(this.vanyaLoadingContainer);
+
+      // Авто-масштабирование
+      const box = new THREE.Box3().setFromObject(this.vanyaLoadingMesh);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      console.warn(`[initAssetGate] Model original size: x=${size.x.toFixed(2)}, y=${size.y.toFixed(2)}, z=${size.z.toFixed(2)}. MaxDim: ${maxDim.toFixed(2)}`);
+      
+      if (maxDim > 0) {
+        const scale = 1.7 / maxDim; // Приводим к высоте 1.7 метра, чтобы модель отлично вписывалась в мобильные экраны
+        this.vanyaLoadingMesh.scale.set(scale, scale, scale);
+        console.warn(`[initAssetGate] Applied scale: ${scale.toFixed(4)}`);
+      }
+      
+      // Обновляем бокс после масштабирования
+      const boxScaled = new THREE.Box3().setFromObject(this.vanyaLoadingMesh);
+      const center = boxScaled.getCenter(new THREE.Vector3());
+      console.warn(`[initAssetGate] Scaled model center: x=${center.x.toFixed(2)}, y=${center.y.toFixed(2)}, z=${center.z.toFixed(2)}`);
+      
+      // Центрируем модель ВНУТРИ контейнера (чтобы локальный ноль стал по центру)
+      this.vanyaLoadingMesh.position.x = -center.x;
+      this.vanyaLoadingMesh.position.y = -boxScaled.max.y + 1.6; // Макушка на уровне 1.6
+      this.vanyaLoadingMesh.position.z = -center.z;
+      console.warn(`[initAssetGate] Mesh final local position: x=${this.vanyaLoadingMesh.position.x.toFixed(2)}, y=${this.vanyaLoadingMesh.position.y.toFixed(2)}, z=${this.vanyaLoadingMesh.position.z.toFixed(2)}`);
+      
+      // Добавляем модель в контейнер
+      this.vanyaLoadingContainer.add(this.vanyaLoadingMesh);
+      
+      // Разворачиваем КОНТЕЙНЕР лицом к камере (модель изначально повернута затылком при 180 градусах, поэтому ставим 0)
+      this.vanyaLoadingContainer.rotation.y = 0;
+      
+      this.loadMainAssets();
+    }, (xhr) => {
+      if (xhr.total > 0) {
+        const percent = (xhr.loaded / xhr.total) * 100;
+        console.warn(`[initAssetGate] VANYAFRONTVIEW loading progress: ${percent.toFixed(1)}%`);
+      }
+    }, (err) => {
+      console.error('[initAssetGate] Failed to load VANYAFRONTVIEW', err);
+      this.loadMainAssets();
+    });
+  }
+
+  loadMainAssets() {
     const assetPromises = [
       this.player.readyPromise,
       this.pursuer.readyPromise,
@@ -196,8 +282,38 @@ class Game {
 
     this.setPlayLoading(true);
     Promise.allSettled(assetPromises).then(() => {
-      this.assetsReady = true;
-      this.setPlayLoading(false);
+      // Ждем, пока анимация наезда камеры (3 секунды) не завершится
+      const finishLoading = () => {
+        this.assetsReady = true;
+        this.setPlayLoading(false);
+
+        if (this.state === 'LOADING') {
+          if (this.vanyaLoadingContainer) {
+            this.scene.remove(this.vanyaLoadingContainer);
+            this.vanyaLoadingContainer = null;
+          }
+          if (this.vanyaLoadingMesh) {
+            this.vanyaLoadingMesh = null;
+          }
+          
+          // Возвращаем видимость основным объектам
+          if (this.player && this.player.mesh) this.player.mesh.visible = true;
+          if (this.pursuer && this.pursuer.mesh) this.pursuer.mesh.visible = true;
+          
+          this.state = 'MENU';
+          this.setupMenuScene();
+          
+          // Показываем главное меню
+          uiManager.showScreen('main-menu');
+        }
+      };
+
+      const checkAnim = setInterval(() => {
+        if (this.loadingTimer >= 3.0) {
+          clearInterval(checkAnim);
+          finishLoading();
+        }
+      }, 50);
     });
   }
 
@@ -245,6 +361,27 @@ class Game {
 
     this.camera.position.set(0, 1.25, 2.75);
     this.camera.lookAt(new THREE.Vector3(0, 1.05, 0.25));
+  }
+
+  updateLoadingCamera(dt) {
+    this.loadingTimer += dt;
+    
+    // Лицо Вани крупно, камера плавно наезжает.
+    // На мобильных экранах (portrait) отдаляем камеру (startZ=3.5, endZ=2.0), чтобы голова не обрезалась сверху.
+    const startZ = 3.5;
+    const endZ = 2.0;
+    // Наезжаем до конца за 3 секунды (разница 1.5 метра / 3.0с = 0.5 м/с)
+    const currentZ = Math.max(endZ, startZ - this.loadingTimer * 0.5);
+    
+    this.camera.position.set(0, 1.4, currentZ);
+    this.camera.lookAt(new THREE.Vector3(0, 1.4, 0));
+
+    // Обновляем прогресс бар в UI
+    const percent = Math.min(100, Math.floor((this.loadingTimer / 3.0) * 100));
+    const fill = document.getElementById('loading-progress-fill');
+    const text = document.getElementById('loading-text');
+    if (fill) fill.style.width = `${percent}%`;
+    if (text) text.textContent = `Подготовка двора... ${percent}%`;
   }
 
   updateMenuCamera(dt) {
@@ -318,6 +455,11 @@ class Game {
     if (this.stars) {
       this.stars.position.z = this.player.mesh.position.z;
       this.stars.position.x = this.player.mesh.position.x;
+    }
+
+    if (this.state === 'LOADING') {
+      this.updateLoadingCamera(dt);
+      return;
     }
 
     if (this.state === 'MENU') {
@@ -794,6 +936,10 @@ class Game {
     else if (this.state === 'MENU') {
       this.player.updatePresentation(dt);
       this.pursuer.updatePresentation(dt);
+    }
+    else if (this.state === 'LOADING') {
+      if (this.loadingMixer) this.loadingMixer.update(dt);
+      // Обновление физики/презентации в фоне не критично, но можно скрыть Лизу и Ваню
     }
 
     // Обновление частиц взрыва
